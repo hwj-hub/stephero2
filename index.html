@@ -130,6 +130,17 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
 .act:active{background:var(--panel2)}
 .act[disabled]{opacity:.3;pointer-events:none}
 .act.armed{background:#33265c;border-color:var(--violet);box-shadow:0 0 0 1px var(--violet) inset}
+/* 필살기 — 게이지를 버튼 안쪽에 채워 넣는다. 따로 바를 두면 세로가 그만큼 줄어든다. */
+.act.ult{overflow:hidden}
+.act.ult::before{content:'';position:absolute;left:0;top:0;bottom:0;width:var(--u,0%);
+  background:linear-gradient(180deg,rgba(255,217,74,.32),rgba(255,146,71,.20));
+  transition:width .22s ease-out;pointer-events:none}
+.act.ult > i{position:relative}
+.act.ult.rdy{border-color:var(--amber);background:#3a2a12;
+  box-shadow:0 0 0 1px var(--amber) inset,0 0 14px rgba(255,184,92,.34)}
+.act.ult.rdy .an,.act.ult.rdy .ac{color:var(--amber)}
+.act.ult.rdy .ai{animation:ultpulse .9s ease-in-out infinite}
+@keyframes ultpulse{50%{transform:scale(1.2)}}
 
 /* ══ 인게임 오버레이 ══ */
 #banner{position:absolute;left:0;right:0;top:30%;z-index:4;text-align:center;pointer-events:none;
@@ -363,6 +374,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
     </div>
 
     <div id="acts">
+      <button class="act ult" id="a-ult" disabled><i class="ai">💥</i><i class="an">필살기</i><i class="ac">0%</i></button>
       <button class="act" id="a-fire" disabled><i class="ai">🔥</i><i class="an">화염구</i><i class="ac">5</i></button>
       <button class="act" id="a-heal" disabled><i class="ai">✨</i><i class="an">치유</i><i class="ac">6</i></button>
       <button class="act" id="a-ward" disabled><i class="ai">🛡️</i><i class="an">보호막</i><i class="ac">4</i></button>
@@ -381,6 +393,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
         <li><em>정예</em><span>깃발을 든 <u>정예</u>는 주변 몬스터를 강하게 만들어요 — <u>먼저 잡으면</u> 주변이 약해집니다</span></li>
         <li><em>장비</em><span>상자에서 <u>무기·방어구·장신구</u>가 나와요. 지금 낀 것과 비교해서 고르세요</span></li>
         <li><em>보스</em><span>보스는 체력 절반에서 <u>각성</u>합니다. 잡으면 계단이 열려요</span></li>
+        <li><em>성장</em><span><u>필살기</u>를 모아 터뜨리고, <u>10레벨마다 업그레이드</u> · <u>15레벨에 전직</u></span></li>
       </ul>
       <div class="rot">세로로 들고 하면 더 편해요</div>
       <div class="row2">
@@ -403,6 +416,20 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
       <div class="big" id="boon-title" style="color:var(--teal)">층 돌파!</div>
       <div class="tag" id="boon-sub">축복 하나를 골라 더 깊이 내려가세요</div>
       <div class="picks" id="boon-list"></div>
+    </div>
+
+    <!-- ══ 10레벨 업그레이드 ══ -->
+    <div class="screen" id="sc-up" hidden>
+      <div class="big" style="color:var(--amber)">LV <span id="up-lv">10</span> 업그레이드</div>
+      <div class="tag">셋 중 하나 · 이번 판이 끝날 때까지 남습니다</div>
+      <div class="picks" id="up-list"></div>
+    </div>
+
+    <!-- ══ 전직 ══ -->
+    <div class="screen" id="sc-job" hidden>
+      <div class="big" style="color:var(--violet)">전직</div>
+      <div class="tag" id="job-sub">두 갈래 중 하나 · 한 판에 한 번뿐입니다</div>
+      <div class="picks" id="job-list"></div>
     </div>
 
     <!-- ══ 장비 획득 ══ -->
@@ -609,10 +636,33 @@ var HEAL_SPELL = 0.34;             // 치유 주문 회복률
 var FIRE_MUL = 0.8;                // 화염구 피해 = 공격력 × 이 값
 var WARD_CHARGE = 2;               // 보호막이 막는 반격 횟수
 var SHARD_ATK = 0.07;              // 힘의 조각 공격력 증가율
-var DEPTH_POW = 1.28;              // 층당 몬스터 능력치 배수 (난이도 경사)
+var DEPTH_POW = 1.072;             // 층당 몬스터 능력치 배수 (난이도 경사)
+var DEEP_FROM = 200;               // 이 층부터 경사가 한 번 더 붙는다(200층이 기본 목표)
+var DEEP_HP = 1.040, DEEP_ATK = 1.020;
+/* 200층이 '보통 도달하는 목표' 가 되게 경사를 1.072 로 잡았다(봇 실측 평균 181·중앙 194층).
+   200층 아래로도 끝없이 이어지되 경사가 한 번 더 붙어 서서히 벽이 된다 — 인피니티 던전. */
 var XPB = 0.25;                    // 상위 레벨 몬스터 경험치 보너스/레벨
 var STEP_MS = 62;                  // 한 칸 걷는 시간
 var BOSS_AWAKE = 0.5;              // 보스가 각성하는 체력 비율
+
+/* ── 필살기 · 10레벨 업그레이드 · 전직 ───────────────────────────
+   깊이 내려갈수록 몬스터는 곱셈으로 세지는데 용사에게 곱셈 성장이 축복·장비뿐이라
+   5층 언저리에서 벽에 부딪혔다. 성장 축을 셋 더 놓아 10층 너머까지 밀 수 있게 했다.
+   셋 다 '누르는 순간 눈에 보이는' 것이어야 해서 전부 미리보기·화면에 반영된다.   */
+var ULT_MAX = 100;                 // 필살기 게이지 최대
+var ULT_HIT = 6;                   // 한 대 때릴 때 차는 양
+var ULT_RANGED = 5;                // 주문·화살 한 번에 차는 양
+var ULT_KILL = 11;                 // 처치할 때
+var ULT_BOSS = 34;                 // 보스를 잡을 때
+var ULT_FOG = 1.5;                 // 안개 한 칸을 걷을 때
+var UP_BASE = 10;                  // 첫 업그레이드 레벨
+var UP_GROW = 1.35;                // 다음 업그레이드까지의 간격이 레벨에 비례해 벌어진다
+var UP_MIN  = 3;                   // 그래도 최소 이만큼은 벌어진다
+/* '10레벨마다' 로 고정하면 레벨이 오르는 만큼 업그레이드도 선형으로 늘어
+   곱셈 성장이 폭주한다(실측: 200층에서 369회). 간격을 레벨에 비례시키면
+   횟수가 로그로 늘어 깊이 들어가도 감당이 된다. */
+function nextUpLv(cur){ return Math.max(cur + UP_MIN, Math.round(cur * UP_GROW)); }
+var JOB_LV = 15;                   // 이 레벨에서 전직 (한 번)
 
 /* ── 자동 공략 · 배속 ────────────────────────────────────────────
    자동은 '봇이 대신 두는 것' 이 아니라 **사람이 누르는 것과 똑같은 함수**를
@@ -630,11 +680,13 @@ var AUTO_CHIP = 0.34;              // 치고 빠질 때 남길 체력 비율
 
 /* 궁수 화살 — 멀수록 세진다. 이게 '거리를 벌리는 이유' 가 된다.
    붙어서 쏘면 손해라 궁수만 지도를 다르게 읽게 된다.               */
-var ARW_MUL = 0.58;                // 화살 피해 = 공격력 × 이 값 × 거리배수
+var ARW_MUL = 0.70;                // 화살 피해 = 공격력 × 이 값 × 거리배수
 var ARW_NEAR = 0.60, ARW_FAR = 1.55, ARW_RANGE = 5;
-function arwDist(d){               /* 거리 1 → 0.60배, 5칸 이상 → 1.55배 */
+/* 저격수로 전직하면 먼 거리 배수가 더 커진다 */
+function arwFarV(){ return (P && P.arwFar) ? P.arwFar : ARW_FAR; }
+function arwDist(d){               /* 거리 1 → 0.60배, 5칸 이상 → 1.55배(저격수 2.3배) */
   var q = clamp((d-1)/(ARW_RANGE-1), 0, 1);
-  return ARW_NEAR + (ARW_FAR-ARW_NEAR)*q;
+  return ARW_NEAR + (arwFarV()-ARW_NEAR)*q;
 }
 
 /* 층별 몬스터 레벨 보정 — 깊이 들어갈수록 용사보다 세진다.
@@ -650,15 +702,21 @@ var OFFS = [
 ];
 /* 층 자체가 갖는 최소 레벨 — 층을 서둘러 내려가며 레벨을 안 올리는
    꼼수를 막는다. 보통 플레이는 이 값보다 높게 큰다. */
-function minLv(f){ return Math.max(1, Math.round(f*0.9)); }
+var MINLV = 0.9;                   // 층이 갖는 최소 몬스터 레벨 = 층수 × 이 값
+function minLv(f){ return Math.max(1, Math.round(f*MINLV)); }
 /* 보스 체력 배수 — 층이 깊을수록 조금씩 두꺼워진다 */
-function bossHp(f){ return 1.70 + 0.06*f; }
+var BOSS_HP0 = 1.70, BOSS_HPK = 0.06;
+function bossHp(f){ return BOSS_HP0 + BOSS_HPK*f; }
 /* 층 깊이가 주는 능력치 배수. 용사는 힘의 조각·축복·장비로 곱셈 성장을 하므로
    몬스터도 곱셈으로 따라붙지 않으면 판이 끝나지 않는다.
    체력과 공격력에 같은 배수를 걸면 한 대당 피해가 제곱으로 뛰어
    어느 층에서 갑자기 전멸한다 — 공격력 쪽 경사를 낮춰 완만하게 만든다. */
-function dpowH(f){ return Math.pow(DEPTH_POW, (f||1)-1); }
-function dpowA(f){ return Math.pow(DEPTH_POW, ((f||1)-1)*0.6); }
+/* 12층까지는 완만하게(내려가는 맛), 그 아래는 한 번 더 가팔라진다.
+   용사의 곱셈 성장(축복·장비·업그레이드·전직)이 경사를 영영 앞지르면
+   한 판이 끝나지 않는다 — 실제로 87층까지 간 판이 나왔다. 곡선으로 못 박는다. */
+function deepMul(f, k){ return f > DEEP_FROM ? Math.pow(k, f - DEEP_FROM) : 1; }
+function dpowH(f){ f = f||1; return Math.pow(DEPTH_POW, f-1) * deepMul(f, DEEP_HP); }
+function dpowA(f){ f = f||1; return Math.pow(DEPTH_POW, (f-1)*0.6) * deepMul(f, DEEP_ATK); }
 
 /* ══════════════ 2) 종족 · 특성 ══════════════ */
 /* tough=물리 -35% / first=선공 / magic=마법무효 / poison=반격 +50%
@@ -766,35 +824,130 @@ function biomeOf(f){ return BIOMES[Math.min(BIOMES.length-1, Math.floor(((f||1)-
    직업마다 '고유기' 를 하나씩 준다. 숫자만 다르면 여섯이 똑같이 느껴진다 —
    고유기는 전부 미리보기(simFight)에 그대로 반영되거나 눈에 보이는 방식이어야 한다. */
 var EXEC_AT = 0.35;      // 전사 처형이 걸리는 남은 체력 비율
-var EXEC_MUL = 1.8;      // 처형 배수
+var EXEC_MUL = 1.45;     // 처형 배수
 var AMBUSH_STEPS = 3;    // 도적 기습이 다시 차는 걸음 수
 var ECHO_MP = 3;         // 마법사 화염구 처치 시 돌려받는 마나
-var RAGE_MAX = 1.10;     // 광전사 격노 최대 공격력 증가
+var RAGE_MAX = 1.00;     // 광전사 격노 최대 공격력 증가
 var AEGIS_HEAL = 0.50;   // 사제 가호가 채워 주는 체력 비율
-var HOLY_MUL = 1.45;     // 사제가 언데드에게 주는 피해 배수
+var HOLY_MUL = 1.55;     // 사제가 언데드에게 주는 피해 배수
 
 var CLASSES = [
   {id:'warrior', ic:'⚔️', nm:'전사', tag:'정면 승부',
-   sig:'철벽', sigd:'몬스터마다 <u>첫 반격을 통째로 막고</u>, 빈사인 적에게 피해 1.8배',
-   desc:'체력 물약 2개 · 반격을 한 번씩 지워 소모전에 강하다'},
+   sig:'철벽', sigd:'몬스터마다 <u>첫 반격을 통째로 막고</u>, 빈사인 적에게 피해 1.45배',
+   desc:'체력 물약 2개 · 반격을 한 번씩 지워 소모전에 가장 강하다'},
   {id:'rogue',   ic:'🗡️', nm:'도적', tag:'치고 빠지기',
-   sig:'기습', sigd:'첫 일격 2배 · <u>세 걸음 물러났다 오면</u> 다시 2배',
+   sig:'기습', sigd:'첫 일격 <u>1.85배</u> · 세 걸음 물러났다 오면 다시 붙는다',
    desc:'안개 회복 +6% · 물약 하나씩 · 치고 빠질수록 세진다'},
   {id:'mage',    ic:'🔮', nm:'마법사', tag:'주문 연쇄',
    sig:'룬 각인', sigd:'화염구로 처치하면 <u>마나를 3 돌려받는다</u>',
-   desc:'최대 마나 +11 · 주문 피해 +72% · 화염구는 <u>단단함·수호를 무시</u>'},
+   desc:'최대 마나 +11 · 주문 피해 +85% · 화염구는 <u>단단함·수호를 무시</u>'},
   {id:'ranger',  ic:'🏹', nm:'궁수', tag:'거리 싸움',
    sig:'조준 사격', sigd:'화살은 <u>반격이 없고 멀수록 세진다</u>(최대 1.55배). 안개 두 칸마다 1발',
-   desc:'화살 8발 · 쏘고 물러나 안개를 걷으면 다시 찬다 · 마법무효도 통한다'},
+   desc:'화살 10발 · 쏘고 물러나 안개를 걷으면 다시 찬다 · 마법무효도 통한다'},
   {id:'cleric',  ic:'🔔', nm:'사제', tag:'버티기',
    sig:'가호', sigd:'층마다 한 번, <u>죽을 일격을 막고</u> 체력 절반을 채운다',
-   desc:'치유 주문 2배 · 언데드에게 피해 +45% · 마나 물약 2개'},
+   desc:'치유 주문 2배 · 언데드에게 피해 +55% · 마나 물약 2개'},
   {id:'berserk', ic:'🪓', nm:'광전사', tag:'벼랑 끝',
    sig:'격노', sigd:'<u>잃은 체력에 비례해</u> 공격력이 최대 +90%',
-   desc:'처치할 때 체력 6% 회복 · 받는 피해 +5%'}
+   desc:'처치할 때 체력 9% 회복 · 잃은 체력이 곧 공격력'}
 ];
 
-/* ══════════════ 7) 축복 16종 (보스를 잡을 때마다 둘 중 하나) ══════════════ */
+/* ══════════════ 7) 필살기 ══════════════
+   게이지가 차면 쓸 수 있고 **반격을 전혀 받지 않는다**. 직업마다 모양이 달라서
+   "이 직업은 어떻게 도는가" 를 한 번 더 갈라 준다. 전직하면 배수가 더 붙는다. */
+var ULTS = {
+  warrior: {nm:'파쇄격',      sh:'파쇄격', ic:'💥', kind:'single', mul:3.0,
+            d:'대상에게 <u>3.0배</u> 피해 · 반격 없음'},
+  rogue:   {nm:'그림자 연격',  sh:'연격',  ic:'🌀', kind:'multi',  mul:0.76, hits:5,
+            d:'대상을 <u>5연타</u>(각 76%) · 반격 없음'},
+  mage:    {nm:'유성 낙하',    sh:'유성',  ic:'☄️', kind:'blast',  mul:2.2,
+            d:'대상과 <u>주변 여덟 칸</u>에 2.2배 · 마법무효도 통함'},
+  ranger:  {nm:'관통 사격',    sh:'관통',  ic:'🎯', kind:'line',   mul:3.0,
+            d:'대상 방향 <u>일직선</u>에 있는 전부에게 3.0배'},
+  cleric:  {nm:'성역',        sh:'성역',  ic:'🔆', kind:'heal',   mul:0,
+            d:'체력 <u>70% 회복</u> · 보호막 3 · 가호가 비었으면 1회 채움'},
+  berserk: {nm:'광란',        sh:'광란',  ic:'🩸', kind:'rage',   mul:2.8,
+            d:'대상 2.8배 + 주변 1.4배 · <u>내 체력 8% 소모</u>'}
+};
+
+/* ══════════════ 8) 10레벨 업그레이드 (셋 중 하나) ══════════════
+   축복보다 한참 크다. 10·20·30… 레벨마다 한 번씩 고른다. */
+var UPGRADES = [
+  {id:'ugHp',   ic:'💗', nm:'대성장',   d:'최대 체력 <u>+45%</u> · 가득 회복',
+   f:function(){ P.hpMul *= 1.45; P.hp = maxHp(); }},
+  {id:'ugAtk',  ic:'⚔️', nm:'무기 숙련', d:'공격력 <u>+32%</u>',
+   f:function(){ P.atkMul *= 1.32; }},
+  {id:'ugDr',   ic:'🛡️', nm:'불굴',     d:'받는 피해 <u>−26%</u>',
+   f:function(){ P.dr *= 0.74; }},
+  {id:'ugUlt',  ic:'💫', nm:'필살 연마', d:'필살기 피해 <u>+55%</u> · 게이지 <u>+40% 빨리</u>',
+   f:function(){ P.ultMul *= 1.55; P.ultGain *= 1.40; }},
+  {id:'ugVamp', ic:'🩸', nm:'심안',     d:'처치할 때 체력 <u>+13%</u>',
+   f:function(){ P.vamp += 0.13; }},
+  {id:'ugReg',  ic:'🌿', nm:'대탐험가', d:'안개 회복 <u>+70%</u>',
+   f:function(){ P.regenMul *= 1.70; }},
+  {id:'ugFirst',ic:'💥', nm:'선제',     d:'몬스터마다 <u>첫 일격 +120%</u>',
+   f:function(){ P.firstMul += 1.20; }},
+  {id:'ugXp',   ic:'📚', nm:'각성',     d:'경험치 <u>+55%</u> · 최대 마나 +6',
+   f:function(){ P.xpMul *= 1.55; P.mpBase += 6; }}
+];
+
+/* ══════════════ 9) 전직 — 15레벨에 한 번, 둘 중 하나 ══════════════
+   기본 직업마다 갈래가 둘이고, 갈래마다 '도는 방식' 이 달라진다.
+   숫자만 올리는 쪽과 규칙을 하나 바꾸는 쪽을 섞어 놨다. */
+var JOBS = {
+  warrior: [
+    {id:'paladin',  ic:'✝️', nm:'성기사', tag:'버티기',
+     d:'철벽이 몬스터마다 <u>두 번</u> · 처치 시 체력 <u>+8%</u> · 최대 체력 +22%',
+     f:function(){ P.bulwark = 2; P.vamp += 0.08; P.hpMul *= 1.22; }},
+    {id:'destroyer', ic:'🪓', nm:'파괴자', tag:'밀어붙이기',
+     d:'공격력 <u>+38%</u> · 처형 <u>2.5배</u> · 필살기 +30%',
+     f:function(){ P.atkMul *= 1.38; P.exec = 2.5; P.ultMul *= 1.30; }}
+  ],
+  rogue: [
+    {id:'assassin', ic:'🥷', nm:'암살자', tag:'한 방',
+     d:'첫 일격 <u>3배</u> · 기습이 <u>두 걸음</u>에 찬다 · 필살기 +25%',
+     f:function(){ P.firstMul = 3.0; P.ambush = 2; P.ultMul *= 1.25; }},
+    {id:'duelist',  ic:'⚔️', nm:'쌍검사', tag:'연타',
+     d:'모든 공격이 <u>2연타</u>(합 124%) · 공격력 +14%',
+     f:function(){ P.twin = 0.62; P.atkMul *= 1.14; }}
+  ],
+  mage: [
+    {id:'archmage', ic:'🌌', nm:'대마법사', tag:'광역',
+     d:'화염구가 <u>주변까지 번진다</u>(45%) · 주문 피해 +35%',
+     f:function(){ P.fireSplash = 0.45; P.spellMul *= 1.35; }},
+    {id:'elemental',ic:'🔯', nm:'원소술사', tag:'관통',
+     d:'주문이 <u>마법무효·봉인을 뚫는다</u> · 주문 피해 +55% · 마나 +8',
+     f:function(){ P.pierce = 1; P.spellMul *= 1.55; P.mpBase += 8; }}
+  ],
+  ranger: [
+    {id:'sniper',   ic:'🎯', nm:'저격수', tag:'먼 거리',
+     d:'화살 거리 배수가 최대 <u>2.3배</u>까지 · 공격력 +12%',
+     f:function(){ P.arwFar = 2.3; P.atkMul *= 1.12; }},
+    {id:'hunter',   ic:'🏹', nm:'명사수', tag:'연사',
+     d:'화살통 <u>+6</u> · <u>안개 한 칸마다</u> 한 발 · 화살 피해 +20%',
+     f:function(){ P.arwBase += 6; P.arw = arwMax(); P.arwFast = 1; P.arwMulUp = 1.20; }}
+  ],
+  cleric: [
+    {id:'bishop',   ic:'🔔', nm:'주교', tag:'불사',
+     d:'가호가 <u>층마다 두 번</u> · 치유 <u>3배</u> · 최대 체력 +18%',
+     f:function(){ P.aegisMax += 1; P.aegis = P.aegisMax; P.healMul = 3.0; P.hpMul *= 1.18; }},
+    {id:'templar',  ic:'🛡️', nm:'성전사', tag:'싸우는 사제',
+     d:'공격력 <u>+30%</u> · 언데드에게 <u>+90%</u> · 철벽을 얻는다',
+     f:function(){ P.atkMul *= 1.30; P.holy = 2; P.bulwark = Math.max(P.bulwark, 1); }}
+  ],
+  berserk: [
+    {id:'warlord',  ic:'👹', nm:'광왕', tag:'벼랑 끝',
+     d:'격노가 최대 <u>+170%</u> · 필살기 +35%',
+     f:function(){ P.rage = 1.70; P.ultMul *= 1.35; }},
+    {id:'bloodfang',ic:'🧛', nm:'혈귀', tag:'흡혈',
+     d:'처치할 때 체력 <u>+14%</u> · 받는 피해 −18% · 공격력 +15%',
+     f:function(){ P.killHeal = 0.14; P.dr *= 0.82; P.atkMul *= 1.15; }}
+  ]
+};
+var JOB_NM = {};
+for(var jk in JOBS) for(var ji=0; ji<JOBS[jk].length; ji++) JOB_NM[JOBS[jk][ji].id] = JOBS[jk][ji];
+
+/* ══════════════ 10) 축복 16종 (보스를 잡을 때마다 둘 중 하나) ══════════════ */
 var BOONS = [
   {id:'atk',   ic:'⚔️', nm:'날카로움',   d:'공격력 <u>+15%</u>',        f:function(){P.atkMul*=1.15;}},
   {id:'hp',    ic:'❤️', nm:'강인함',     d:'최대 체력 <u>+20%</u> · 가득 회복', f:function(){P.hpMul*=1.20;P.hp=maxHp();}},
@@ -814,7 +967,7 @@ var BOONS = [
   {id:'greed', ic:'💰', nm:'탐욕',       d:'보물 <u>2배</u> · 상자 등급이 좋아진다', f:function(){P.greed++;}}
 ];
 
-/* ══════════════ 8) 장비 23종 ══════════════
+/* ══════════════ 11) 장비 23종 ══════════════
    무기 w · 방어구 a · 장신구 t / 등급 0 평범 · 1 희귀 · 2 전설.
    효과는 곱셈으로 쌓이고, 바꿔 낄 때 recalcEq() 로 다시 계산한다.       */
 var GRADE_NM = ['평범','희귀','전설'];
@@ -938,7 +1091,9 @@ function recalcEq(){
 }
 function maxHp(){ return Math.max(1, Math.round(HP_BASE * P.lv * P.hpMul * P.eqm.hp)); }
 function heroAtk(){ return Math.max(1, Math.round(ATK_BASE * P.lv * P.atkMul * P.eqm.atk)); }
-function mpMax(){ return P.mpBase + P.eqm.mp; }
+/* 마나는 레벨을 조금 따라온다 — 안 그러면 몬스터 체력만 곱셈으로 커져
+   깊은 층에서 주문 직업이 '가끔 한 방' 밖에 못 쓰는 평타 직업이 되어 버린다. */
+function mpMax(){ return P.mpBase + P.eqm.mp + Math.floor(P.lv/3); }
 function arwMax(){ return P.arwBase + P.eqm.arw; }
 function xpNeed(){ return XP_NEED * P.lv; }
 function regenPerTile(){
@@ -946,11 +1101,25 @@ function regenPerTile(){
   if(M && M.chill) v *= 0.5;              /* 서리마녀 각성 — 이 층은 회복이 절반 */
   return Math.max(1, Math.round(v));
 }
-function BULW(){ return P.bulwark || P.eqm.bulwark; }
+/* 철벽이 몬스터마다 몇 번 막는가. 성기사로 전직하면 2가 된다. */
+function BULW(){ return Math.max(P.bulwark, P.eqm.bulwark); }
+/* 사제 계열이 언데드에게 주는 배수 — 성전사로 전직하면 더 커진다 */
+function holyMul(){ return P.holy >= 2 ? 1.90 : HOLY_MUL; }
+/* 필살기 */
+function ultDef(){ return ULTS[P.cls]; }
+function ultReady(){ return P.ult >= ULT_MAX; }
+function addUlt(n){
+  if(!P || P.ult >= ULT_MAX) return;
+  P.ult = Math.min(ULT_MAX, P.ult + n * P.ultGain);
+}
+function sgn(v){ return v > 0 ? 1 : (v < 0 ? -1 : 0); }
 /* 광전사 격노 — 잃은 체력에 비례해 공격력이 오른다. 안개 회복과 정면으로 부딪히는 게 노림수. */
 function rageMul(php){
   if(!P.rage) return 1;
-  return 1 + P.rage * (1 - clamp(php/maxHp(), 0, 1));
+  /* 선형이면 체력 70%에서 겨우 +33% 라 '안전하게 도는 판' 에서는 없는 능력이나 마찬가지였다.
+     제곱근에 가까운 곡선으로 앞을 당겨, 조금만 다쳐도 값이 붙게 한다. */
+  var lost = 1 - clamp(php/maxHp(), 0, 1);
+  return 1 + P.rage * Math.pow(lost, 0.7);
 }
 
 function newHero(clsId){
@@ -961,20 +1130,24 @@ function newHero(clsId){
     dr:1, vamp:0, firstMul:1, killMp:0, wardPlus:0, greed:0,
     exec:1, ambush:0, echo:0, bulwark:0, rage:0, holy:0, killHeal:0,
     aegis:0, aegisMax:0,                    /* 직업 고유기 */
+    ult:0, ultMul:1, ultGain:1,             /* 필살기 */
+    adv:null, upNext:UP_BASE, ups:[],       /* 전직 · 레벨 비례 업그레이드 */
+    twin:0, pierce:0, fireSplash:0,         /* 전직이 여는 규칙들 */
+    arwFar:0, arwFast:0, arwMulUp:1,
     eq:{w:null, a:null, t:null}, eqm:{atk:1,hp:1,dr:1,regen:1,spell:1,xp:1,
         first:0,vamp:0,mp:0,mpx:1,arw:0,exec:1,bulwark:0},
     pot:1, eth:1, x:0, y:0, kills:0, gold:0, boons:[]
   };
   /* 철벽이 몬스터마다 반격 한 번을 통째로 지워 주므로 전사의 수동 보정은 작게 잡는다.
      여섯 직업은 '무엇을 더 받는가' 가 아니라 '어떻게 다르게 도는가' 로 갈라야 한다. */
-  if(c==='warrior'){ P.hpMul=1.02; P.exec=EXEC_MUL; P.bulwark=1; P.pot=2; P.eth=0; }
-  if(c==='rogue'){   P.firstMul=2.0; P.regenMul=1.06; P.ambush=AMBUSH_STEPS; }
-  if(c==='mage'){    P.mpBase=MP_BASE+11; P.spellMul=1.72; P.echo=ECHO_MP;
-                     P.pot=0; P.eth=2; }
-  if(c==='ranger'){  P.arwBase=8; P.arw=8; P.pot=1; P.eth=0; }
+  if(c==='warrior'){ P.hpMul=0.98; P.exec=EXEC_MUL; P.bulwark=1; P.pot=2; P.eth=0; }
+  if(c==='rogue'){   P.firstMul=1.85; P.regenMul=1.06; P.ambush=AMBUSH_STEPS; }
+  if(c==='mage'){    P.mpBase=MP_BASE+11; P.spellMul=1.85; P.echo=ECHO_MP;
+                     P.pot=1; P.eth=2; }
+  if(c==='ranger'){  P.arwBase=10; P.arw=10; P.pot=1; P.eth=0; }
   if(c==='cleric'){  P.holy=1; P.aegis=1; P.aegisMax=1; P.spellMul=1.15;
-                     P.healMul=2.0; P.pot=1; P.eth=2; }
-  if(c==='berserk'){ P.rage=RAGE_MAX; P.killHeal=0.06; P.dr=1.05; P.pot=1; P.eth=0; }
+                     P.healMul=2.0; P.dr=0.94; P.pot=2; P.eth=2; }
+  if(c==='berserk'){ P.rage=RAGE_MAX; P.killHeal=0.09; P.dr=1.00; P.pot=1; P.eth=0; }
   if(!P.healMul) P.healMul = 1;
   recalcEq();
   P.hp = maxHp(); P.mp = mpMax();
@@ -1005,7 +1178,7 @@ function makeMonster(lv, kind, bossDef, f, elite){
     ab:bossDef?bossDef.ab:null, awake:false, un:un,
     aura:elite||null, au:null, elite:!!elite,
     hp:hp, hpMax:hp, atk:Math.max(1,atk),
-    trs:trs, engaged:false, struck:false, guarded:false, dead:false,
+    trs:trs, engaged:false, struck:false, guarded:0, dead:false,
     flash:0, lastHit:-99, ambushed:0
   };
 }
@@ -1199,10 +1372,11 @@ function revealAround(x,y,silent){
   if(run.mpAcc > TILES_PER_MP*3) run.mpAcc = TILES_PER_MP*3;
   if(arwMax() > 0){
     run.arwAcc += got;
-    var am = arwMax();
-    while(run.arwAcc >= TILES_PER_ARW && P.arw < am){ run.arwAcc -= TILES_PER_ARW; P.arw++; }
-    if(run.arwAcc > TILES_PER_ARW*3) run.arwAcc = TILES_PER_ARW*3;
+    var am = arwMax(), per = P.arwFast ? 1 : TILES_PER_ARW;   /* 명사수는 한 칸마다 */
+    while(run.arwAcc >= per && P.arw < am){ run.arwAcc -= per; P.arw++; }
+    if(run.arwAcc > per*3) run.arwAcc = per*3;
   }
+  addUlt(got * ULT_FOG);
   var real = P.hp - before;
   if(real > 0 && !silent) float(x, y, '+'+real, '#7ee787');
   return real;
@@ -1225,22 +1399,24 @@ function monAtkMul(m, curHp){              /* 몬스터 공격력 배수 */
   if(m.au && m.au.rally) r *= AURA_RALLY;
   return r;
 }
-function spellImmune(m){ return has(m,'magic') || !!(m.au && m.au.seal); }
+/* 원소술사로 전직하면 마법무효·봉인을 뚫는다 */
+function spellImmune(m){ return !P.pierce && (has(m,'magic') || !!(m.au && m.au.seal)); }
 
 function physDmg(m, struck, curHp, php){
   var d = heroAtk();
   if(P.rage) d *= rageMul(php===undefined ? P.hp : php);
   if(!struck) d *= (P.firstMul + P.eqm.first);
-  if(P.holy && m.un) d *= HOLY_MUL;
+  if(P.holy && m.un) d *= holyMul();
+  if(P.twin) d *= 2*P.twin;             /* 쌍검사 — 한 번에 두 번 벤다 */
   d *= monRes(m, curHp);
   var ex = P.exec * P.eqm.exec;
   if(ex > 1 && (curHp===undefined ? m.hp : curHp) <= m.hpMax*EXEC_AT) d *= ex;
   return Math.max(1, Math.round(d));
 }
 function arwDmg(m, dist){
-  var d = heroAtk() * ARW_MUL * arwDist(dist);
+  var d = heroAtk() * ARW_MUL * arwDist(dist) * P.arwMulUp;
   if(P.rage) d *= rageMul(P.hp);
-  if(P.holy && m.un) d *= HOLY_MUL;
+  if(P.holy && m.un) d *= holyMul();
   d *= monRes(m);
   return Math.max(1, Math.round(d));
 }
@@ -1282,7 +1458,7 @@ function simFight(m){
     if(hp <= 0 && !dead){ dead = true; deadAt = Math.max(1, hits); }
   }
   function block(raw){                     /* 철벽 → 보호막 → 진짜 피해 */
-    if(bulw && !gd){ gd = true; return 0; }
+    if(bulw > gd){ gd++; return 0; }
     if(ward > 0){ ward--; return 0; }
     return raw;
   }
@@ -1342,8 +1518,8 @@ function hurtP(d, label){
   }
 }
 function takeHit(m, d){
-  if(BULW() && !m.guarded){
-    m.guarded = true; float(P.x, P.y, '철벽', '#8fa8d8'); return;
+  if(BULW() > m.guarded){
+    m.guarded++; float(P.x, P.y, '철벽', '#8fa8d8'); return;
   }
   if(P.ward > 0){ P.ward--; float(P.x, P.y, '막음', '#6aa8ff'); return; }
   hurtP(d);
@@ -1385,7 +1561,8 @@ function attackOnce(m){
   var wasExec = ex > 1 && m.hp <= m.hpMax*EXEC_AT;
   m.struck = true; m.lastHit = run.steps;
   m.hp -= d; m.flash = 1;
-  float(m.x, m.y, String(d), wasExec ? '#ff9247' : '#ffe08a');
+  float(m.x, m.y, String(d) + (P.twin ? ' ×2' : ''), wasExec ? '#ff9247' : '#ffe08a');
+  addUlt(ULT_HIT);
   sfx('hit');
   var sp = spikeDmg(m, m.hp);
   if(sp > 0){
@@ -1442,6 +1619,7 @@ function killMon(m){
   m.dead = true;
   M.mon[idx(m.x,m.y)] = null;
   P.kills++;
+  addUlt(m.boss ? ULT_BOSS : ULT_KILL);
   markDex(m);
   boom(m.x, m.y, m.kind.col, m.boss);
   syncAuras();
@@ -1481,12 +1659,16 @@ function gainXp(n){
   while(P.xp >= xpNeed()){
     P.xp -= xpNeed(); P.lv++; up++;
     P.hp = maxHp(); P.mp = mpMax();
+    /* 업그레이드는 레벨에 비례해 뜸해진다. 한 번에 여러 레벨이 올라도 빠짐없이 센다. */
+    while(P.lv >= P.upNext){ run.upQueue++; P.upNext = nextUpLv(P.upNext); }
+    if(P.lv >= JOB_LV && !P.adv) run.jobPend = true;
   }
   if(up){
     run.levelFx = 1;
     banner('LEVEL ' + P.lv, '체력과 마나가 가득 찼다');
     sfx('lv');
   }
+  if(HEADLESS) grantPending();
 }
 
 /* ══════════════ 13) 주문 · 화살 · 물약 ══════════════ */
@@ -1505,7 +1687,9 @@ function castFire(m){
   m.hp -= d; m.flash = 1;
   float(m.x, m.y, String(d), '#ff9247');
   fire(m.x, m.y);
+  addUlt(ULT_RANGED);
   sfx('fire');
+  if(P.fireSplash) fireSplash(m, d);
   if(m.hp <= 0){
     killMon(m);
     if(P.echo){                       /* 마법사 : 주문으로 끝내면 마나가 돌아온다 */
@@ -1519,6 +1703,21 @@ function castFire(m){
   }
   return true;
 }
+/* 대마법사 — 화염구가 주변 여덟 칸까지 번진다 */
+function fireSplash(m, base){
+  var sp = Math.max(1, Math.round(base * P.fireSplash));
+  for(var i=0;i<8;i++){
+    var nx = m.x+DIR8[i][0], ny = m.y+DIR8[i][1];
+    if(!inb(nx,ny)) continue;
+    var n = M.mon[idx(nx,ny)];
+    if(!n || n.dead || spellImmune(n)) continue;
+    n.hp -= sp; n.flash = 1;
+    float(n.x, n.y, String(sp), '#ffb85c');
+    if(n.hp <= 0) killMon(n);
+    else if(n.boss && !n.awake && n.hp <= n.hpMax*BOSS_AWAKE) awakenBoss(n);
+  }
+}
+
 /* 궁수 — 반격이 없고, 멀수록 세진다. 마법무효에도 통한다. */
 function shootArrow(m){
   if(P.arw <= 0) return false;
@@ -1528,6 +1727,7 @@ function shootArrow(m){
   m.hp -= d; m.flash = 1;
   float(m.x, m.y, String(d), '#ffd166');
   fire(m.x, m.y);
+  addUlt(ULT_RANGED);
   sfx('fire');
   if(m.hp <= 0) killMon(m);
   else if(m.boss && !m.awake && m.hp <= m.hpMax*BOSS_AWAKE){
@@ -1575,6 +1775,126 @@ function useEth(){
   P.mp = Math.min(mpMax(), P.mp + Math.round(POT_MANA*P.potMul));
   float(P.x, P.y, '+마나', '#6aa8ff'); sfx('heal');
   return true;
+}
+
+/* ── 필살기 ────────────────────────────────────────────────
+   게이지가 차야 쓸 수 있고 **반격을 전혀 받지 않는다**. 그래서 '언제 아껴 두었다
+   언제 터뜨리나' 가 이 게임에 새로 생긴 판단이다. 직업마다 모양이 다르다. */
+function ultDmg(m, mul){
+  var d = heroAtk() * mul * P.ultMul;
+  if(P.rage) d *= rageMul(P.hp);
+  if(P.holy && m.un) d *= holyMul();
+  d *= monRes(m);
+  return Math.max(1, Math.round(d));
+}
+function ultHit(m, mul){
+  if(!m || m.dead) return;
+  var d = ultDmg(m, mul);
+  m.hp -= d; m.flash = 1;
+  float(m.x, m.y, String(d), '#ffd94a');
+  fire(m.x, m.y);
+  if(m.hp <= 0){ killMon(m); return; }
+  if(m.boss && !m.awake && m.hp <= m.hpMax*BOSS_AWAKE) awakenBoss(m);
+}
+function castUlt(target){
+  if(!ultReady()) return false;
+  var U = ultDef(), i;
+  if(U.kind !== 'heal' && (!target || target.dead)){
+    toast('필살기를 쓸 대상을 고르세요'); return false;
+  }
+  P.ult = 0;
+  run.shake = 1.6;
+  sfx('ult');
+  banner(U.nm + '!', '');
+  if(U.kind === 'heal'){
+    P.hp = Math.min(maxHp(), P.hp + Math.round(maxHp()*0.70));
+    P.ward = Math.max(P.ward, 3 + P.wardPlus);
+    if(P.aegis <= 0) P.aegis = Math.max(1, Math.min(P.aegisMax, 1));
+    float(P.x, P.y, U.nm, '#ffe08a');
+    ultFx(P.x, P.y, 2.4);
+    return true;
+  }
+  ultFx(target.x, target.y, (U.kind === 'single' || U.kind === 'multi') ? 1.3 : 2.1);
+  if(U.kind === 'single') ultHit(target, U.mul);
+  else if(U.kind === 'multi'){
+    for(i=0;i<U.hits;i++){ if(target.dead) break; ultHit(target, U.mul); }
+  }else if(U.kind === 'blast' || U.kind === 'rage'){
+    var side = U.kind === 'rage' ? 0.5 : 1.0, ring = [];
+    for(i=0;i<8;i++){
+      var nx = target.x+DIR8[i][0], ny = target.y+DIR8[i][1];
+      if(!inb(nx,ny)) continue;
+      var mm = M.mon[idx(nx,ny)];
+      if(mm && !mm.dead) ring.push(mm);
+    }
+    ultHit(target, U.mul);
+    for(i=0;i<ring.length;i++) ultHit(ring[i], U.mul*side);
+    if(U.kind === 'rage'){
+      var cost = Math.round(maxHp()*0.08);
+      if(P.hp > cost){ P.hp -= cost; float(P.x, P.y, '-'+cost, '#ff8fa6'); }
+    }
+  }else if(U.kind === 'line'){
+    var dx = sgn(target.x - P.x), dy = sgn(target.y - P.y), got = {};
+    if(dx || dy){
+      var cx = P.x + dx, cy = P.y + dy, g = 0;
+      while(inb(cx,cy) && g++ < 12){
+        var lm = M.mon[idx(cx,cy)];
+        if(lm && !lm.dead){ got[idx(cx,cy)] = 1; ultHit(lm, U.mul); }
+        cx += dx; cy += dy;
+      }
+    }
+    if(!got[idx(target.x,target.y)]) ultHit(target, U.mul);   /* 직선에서 비껴가도 대상은 맞는다 */
+  }
+  if(P.hp <= 0) die();
+  return true;
+}
+
+/* ── 10레벨 업그레이드 · 전직 ──────────────────────────────── */
+function rollUpgrades(){
+  var pool = UPGRADES.slice();
+  shuffle(pool);
+  return [pool[0], pool[1], pool[2]];
+}
+function rollJobs(){ return JOBS[P.cls] || JOBS.warrior; }
+var FORCE_JOB = -1;    /* 측정용 — 전직 갈래를 고정한다 (평소엔 -1) */
+/* 자동이 고르는 갈래. 취향으로 찍지 않고 **봇으로 갈래별 도달 층을 재서** 채웠다.
+   값이 같으면 앞쪽을 고른다. (JOB_PREF 는 아래 측정값으로 채운다) */
+var JOB_PREF = {};
+function jobPickIdx(J){
+  var bi = 0, bs = -1e9;
+  for(var i=0;i<J.length;i++){
+    var v = JOB_PREF[J[i].id];
+    if(v === undefined) v = 0;
+    if(v > bs){ bs = v; bi = i; }
+  }
+  return bi;
+}
+function upScore(u){
+  var W = {ugHp:10, ugAtk:10, ugDr:9, ugUlt:10, ugVamp:8, ugReg:7, ugFirst:6, ugXp:6};
+  var v = W[u.id] || 6;
+  if(P.cls === 'berserk' && u.id === 'ugDr') v += 2;
+  if(P.cls === 'ranger'  && u.id === 'ugFirst') v -= 2;
+  return v;
+}
+function pickUpgrade(u){
+  u.f(); P.ups.push(u.nm); recalcEq();
+}
+function pickJob(j){
+  j.f(); P.adv = j.id; recalcEq();
+}
+/* 무헤드(봇)에서는 화면 없이 바로 집는다 — 자동과 같은 기준으로 고른다 */
+function grantPending(){
+  var g = 0;
+  while(run.upQueue > 0 && g++ < 20){
+    run.upQueue--;
+    var L = rollUpgrades(), best = L[0];
+    for(var i=1;i<L.length;i++) if(upScore(L[i]) > upScore(best)) best = L[i];
+    pickUpgrade(best);
+  }
+  if(run.jobPend && !P.adv){
+    run.jobPend = false;
+    var J = rollJobs();
+    pickJob(FORCE_JOB >= 0 ? J[Math.min(FORCE_JOB, J.length-1)] : J[jobPickIdx(J)]);
+  }
 }
 
 /* ══════════════ 14) 이동 · 층 진행 ══════════════ */
@@ -1657,8 +1977,10 @@ function rollBoons(){
   shuffle(pool);
   return [pool[0], pool[1]];
 }
+var TRACE = null;      /* 층별 성장 추적 (밸런스 측정용, ?dev=1 에서만 켠다) */
 function nextFloor(){
   run.floor++;
+  if(TRACE) TRACE.push([run.floor, P.lv, heroAtk(), maxHp(), P.ups.length, P.adv?1:0, Math.round(P.atkMul*100)/100]);
   P.aegis = P.aegisMax;                            /* 가호는 층마다 다시 찬다 */
   genFloor(run.floor);
   STATE = 'play';
@@ -1673,7 +1995,8 @@ function startRun(clsId, seed){
   if(!HEADLESS){ AUTO.cls = P.cls; AUTO.job = null; AUTO.t = 0; AUTO.idle = 0; }
   run = {floor:1, cleared:0, t0:now(), time:0, mpAcc:0, arwAcc:0, shake:0, steps:0,
          levelFx:0, over:false, pendingBoons:null, sel:null, confirm:null, confirmT:0,
-         lastBoss:null, loot:null};
+         lastBoss:null, loot:null,
+         upQueue:0, jobPend:false, pendingUp:null, pendingJob:null};
   fx.length = 0; floats.length = 0;
   genFloor(1);
   STATE = 'play';
@@ -1685,6 +2008,7 @@ function score(){
   s += (run.floor-1)*80;
   var slots = ['w','a','t'];
   for(var i=0;i<3;i++){ var it = P.eq[slots[i]]; if(it) s += 120*(it.g+1); }
+  s += P.ups.length*260 + (P.adv ? 400 : 0);
   return s;
 }
 function die(){
@@ -1724,6 +2048,21 @@ function fire(x,y){
   }
 }
 
+/* 필살기 — 터진 자리에서 금빛 고리가 퍼진다. 반격 없는 한 방이라
+   연출이 약하면 "그냥 세게 때렸네" 로 끝나 버린다. */
+function ultFx(x, y, big){
+  if(run){ run.ultT = 1; run.ultAt = [x, y]; run.ultBig = big || 1; }
+  if(HEADLESS) return;
+  var n = Math.round(24*(big||1));
+  for(var i=0;i<n;i++){
+    var a = Math.PI*2*i/n + rnd()*0.4, sp = (1.3+rnd()*2.1)*(big||1);
+    fx.push({x:x+0.5, y:y+0.5, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 0.3,
+             t:1, col: (i%3===0) ? '#fff3c4' : ((i%3===1) ? '#ffd94a' : '#ff9247'),
+             r:(2.8+rnd()*2.6)*(big||1)});
+  }
+  if(fx.length > 260) fx.splice(0, fx.length-260);
+}
+
 var bannerEl = document.getElementById('banner'), bTimer = 0;
 function banner(a,b){
   if(HEADLESS) return;
@@ -1758,6 +2097,8 @@ function sfx(kind){
     else if(kind==='fire'){ f0=900; f1=180; dur=0.2; type='sawtooth'; vol=0.045; }
     else if(kind==='item'){ f0=980; f1=1460; dur=0.1; type='sine'; }
     else if(kind==='gear'){ f0=620; f1=1560; dur=0.22; type='triangle'; vol=0.055; }
+    else if(kind==='ult'){ f0=170; f1=1500; dur=0.5; type='sawtooth'; vol=0.075; }
+    else if(kind==='up'){ f0=520; f1=1560; dur=0.42; type='triangle'; vol=0.07; }
     else if(kind==='floor'){ f0=300; f1=180; dur=0.34; type='sine'; vol=0.06; }
     else if(kind==='die'){ f0=340; f1=70; dur=0.6; type='sawtooth'; vol=0.07; }
     o.type = type;
@@ -1970,6 +2311,18 @@ function draw(){
     var um = M.mons[ui];
     if(um.dead || !M.seen[idx(um.x,um.y)]) continue;
     drawMonUI(um, t);
+  }
+
+  /* 필살기 고리 */
+  if(run && run.ultT > 0 && run.ultAt){
+    var q = 1 - run.ultT, ux = OX+(run.ultAt[0]+0.5)*TS, uy = topY(run.ultAt[1])+topH()*0.45;
+    var ur = TS*(0.3 + 2.4*q*(run.ultBig||1));
+    ctx.strokeStyle = 'rgba(255,217,74,' + (run.ultT*0.85) + ')';
+    ctx.lineWidth = Math.max(2, TS*0.10*run.ultT);
+    ctx.beginPath(); ctx.ellipse(ux, uy, ur, ur*0.62, 0, 0, 6.284); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,' + (run.ultT*0.5) + ')';
+    ctx.lineWidth = Math.max(1, TS*0.04*run.ultT);
+    ctx.beginPath(); ctx.ellipse(ux, uy, ur*0.62, ur*0.38, 0, 0, 6.284); ctx.stroke();
   }
 
   /* 횃불 — 용사 주변만 살짝 밝게. 개체 위에 얹어야 벽을 다시 그려도 안 지워진다.
@@ -2725,9 +3078,10 @@ var $ = function(id){ return document.getElementById(id); };
 var elDepth=$('v-depth'), elLv=$('v-lv'), elAtk=$('v-atk'),
     elHp=$('v-hp'), elMp=$('v-mp'), gHp=$('g-hp'), gMp=$('g-mp'), gXp=$('g-xp');
 var eqW=$('eq-w'), eqA=$('eq-a'), eqT=$('eq-t');
-var aFire=$('a-fire'), aHeal=$('a-heal'), aWard=$('a-ward'), aPot=$('a-pot'), aEth=$('a-eth');
+var aUlt=$('a-ult'), aFire=$('a-fire'), aHeal=$('a-heal'), aWard=$('a-ward'),
+    aPot=$('a-pot'), aEth=$('a-eth');
 var pkIco=$('pk-ico'), pkT=$('pk-t'), pkS=$('pk-s'), pkRes=$('pk-res'), peekEl=$('peek');
-var armed = false;
+var armed = false, ultArmed = false;
 
 /* 도감 — 만난 몬스터가 남는다. 오래 붙잡는 건 결국 '아직 못 본 게 있다' 는 느낌이다. */
 var DEX = {};
@@ -2773,6 +3127,14 @@ function syncHud(){
   setEqSlot(eqW, P.eq.w); setEqSlot(eqA, P.eq.a); setEqSlot(eqT, P.eq.t);
 
   var lock = AUTO.on;                       /* 자동이 도는 동안은 손을 못 대게 잠근다 */
+  var U = ultDef(), rdy = ultReady();
+  aUlt.style.setProperty('--u', Math.round(P.ult) + '%');
+  aUlt.classList.toggle('rdy', rdy);
+  aUlt.classList.toggle('armed', ultArmed);
+  aUlt.querySelector('.ai').textContent = U.ic;
+  aUlt.querySelector('.an').textContent = U.sh;
+  aUlt.querySelector('.ac').textContent = rdy ? '준비' : (Math.round(P.ult) + '%');
+  aUlt.disabled = lock || !rdy;
   if(P.cls === 'ranger'){
     aFire.disabled = lock || P.arw <= 0;
     aFire.querySelector('.ac').textContent = '×' + P.arw;
@@ -2852,6 +3214,7 @@ function syncPeek(){
   }
   if(m.boss && !m.awake)
     pkS.innerHTML += ' · <b style="color:#ff9247">절반에서 ' + m.bd.abn + '</b>';
+  if(ultReady()) pkS.innerHTML += ' · <b style="color:#ffd94a">' + ultDef().sh + ' 준비</b>';
   pkS.innerHTML += sigHint(m);
   pkRes.className = 'pk-res res-' + th;
   pkRes.textContent = th==='safe' ? '안전' : th==='warn' ? '주의' : th==='risk' ? '위험' : '죽음';
@@ -2936,7 +3299,7 @@ function simOne(m){
     if(hp<=0) dead = true;
   }
   function block(raw){
-    if(bulw && !gd){ gd = true; return 0; }
+    if(bulw > gd){ gd++; return 0; }
     if(ward>0){ ward--; return 0; }
     return raw;
   }
@@ -2986,6 +3349,12 @@ function onTap(px,py){
   var x = c%COLS, y = (c-x)/COLS;
   var m = M.mon[c];
 
+  if(ultArmed){                               /* 필살기 대상 지정 */
+    ultArmed = false;
+    if(m && M.seen[c]){ run.sel = m; castUlt(m); }
+    else toast('필살기는 몬스터에게 쓰세요');
+    syncHud(); return;
+  }
   if(armed){                                  /* 화염구·화살 대상 지정 */
     armed = false;
     if(m && M.seen[c]){ run.sel = m; rangedAt(m); }
@@ -3036,8 +3405,20 @@ stageEl.addEventListener('pointerdown', function(e){
   e.preventDefault();
 }, {passive:false});
 
+aUlt.addEventListener('click', function(){
+  if(STATE!=='play' || AUTO.on || !ultReady()) return;
+  var U = ultDef();
+  if(U.kind === 'heal'){ ultArmed = false; castUlt(null); syncHud(); return; }
+  if(run.sel && !run.sel.dead){ ultArmed = false; armed = false; castUlt(run.sel); }
+  else{
+    ultArmed = !ultArmed; armed = false;
+    if(ultArmed) toast(U.nm + ' — 터뜨릴 몬스터를 누르세요');
+  }
+  syncHud();
+});
 aFire.addEventListener('click', function(){
   if(STATE!=='play') return;
+  ultArmed = false;
   if(run.sel && !run.sel.dead){ armed = false; rangedAt(run.sel); }
   else { armed = !armed; if(armed) toast(P.cls==='ranger' ? '화살을 쏠 몬스터를 누르세요' : '화염구를 쏠 몬스터를 누르세요'); }
   syncHud();
@@ -3079,7 +3460,7 @@ function simLimit(m, minHp){
       gd = m.guarded, bulw = BULW(), awoke = m.awake, aeg = P.aegis;
   var hits = 0, g = 0;
   function blk(raw){
-    if(bulw && !gd){ gd = true; return 0; }
+    if(bulw > gd){ gd++; return 0; }
     if(ward>0){ ward--; return 0; }
     return raw;
   }
@@ -3177,7 +3558,7 @@ function setAuto(on, quiet){
   try{ localStorage.setItem('stephero2.auto', AUTO.on?'1':'0'); }catch(e){}
   if(!quiet){
     if(AUTO.on){
-      armed = false;
+      armed = false; ultArmed = false;
       toast('자동 공략 — 쓰러져도 ' + DEATH_WAIT + '초 뒤 다시 시작합니다', 'good');
     }else toast('자동 해제 — 이제 직접 조작합니다');
   }
@@ -3211,6 +3592,19 @@ function autoPickBoon(){
   toast('자동 · 축복 ' + b.nm, 'good');
   hideAll(); nextFloor(); syncHud();
 }
+function autoPickUp(){
+  var L = run.pendingUp, best = L[0];
+  for(var i=1;i<L.length;i++) if(upScore(L[i]) > upScore(best)) best = L[i];
+  pickUpgrade(best); sfx('up');
+  toast('자동 · 업그레이드 ' + best.nm, 'good');
+  hideAll(); STATE = 'play'; syncHud();
+}
+function autoPickJob(){
+  var J = run.pendingJob, j = J[jobPickIdx(J)];
+  pickJob(j); sfx('up');
+  banner(j.nm + ' 전직!', j.tag);
+  hideAll(); STATE = 'play'; syncHud();
+}
 function autoPickLoot(){
   var it = run.loot;
   if(it && gearScore(it) > gearScore(P.eq[it.slot])){
@@ -3226,6 +3620,10 @@ function autoPickLoot(){
 function autoStep(){
   if(STATE !== 'play' || run.over) return;
   var j = AUTO.job, mh = maxHp();
+  /* 사제의 성역은 대상이 필요 없다 — 위험할 때 바로 쓴다 */
+  if(ultReady() && ultDef().kind === 'heal' && P.hp < mh*0.45){
+    castUlt(null); AUTO.idle = 0; return;
+  }
   if(j && j.m && j.m.dead){ AUTO.job = j = null; }
   if(!j){
     var pl = planAct({floorHP:AUTO_FLOOR, exAt:AUTO_EX, doChip:true});
@@ -3260,6 +3658,13 @@ function autoStep(){
     return;
   }
   run.sel = m;
+  /* 필살기는 아껴 두면 손해다 — 보스·정예거나 붙으면 아플 때 터뜨린다 */
+  if(ultReady() && ultDef().kind !== 'heal' &&
+     (m.boss || m.elite || simFight(m).taken > mh*0.22)){
+    castUlt(m); AUTO.idle = 0;
+    if(m.dead){ AUTO.job = null; run.sel = null; }
+    return;
+  }
   if(!j.warded && P.cls !== 'ranger' && P.mp >= SPELL.ward &&
      simFight(m).taken > mh*0.45){ j.warded = 1; castWard(); AUTO.idle = 0; return; }
   if(P.cls === 'ranger'){
@@ -3290,10 +3695,13 @@ function autoTick(dt){
     }
     return;
   }
-  if(STATE === 'boon' || STATE === 'loot'){
-    AUTO.wait -= dt*SPD;
+  if(STATE === 'boon' || STATE === 'loot' || STATE === 'upgrade' || STATE === 'job'){
+    AUTO.wait -= dt*SPD;          /* 무엇을 골랐는지 볼 수 있게 한 박자 쉰다 */
     if(AUTO.wait <= 0){
-      if(STATE === 'boon') autoPickBoon(); else autoPickLoot();
+      if(STATE === 'boon') autoPickBoon();
+      else if(STATE === 'loot') autoPickLoot();
+      else if(STATE === 'upgrade') autoPickUp();
+      else autoPickJob();
     }
     return;
   }
@@ -3357,8 +3765,24 @@ function update(dt){
       }
       if(STATE !== 'play') walk.length = 0;
     }
+    if(STATE === 'play' && !run.over && !walk.length) checkPending();
   }
   autoTick(dt);
+}
+
+/* 레벨업으로 예약된 업그레이드·전직을 '한 수가 끝난 뒤' 에 연다.
+   gainXp 안에서 바로 화면을 띄우면 교전 한가운데를 끊게 된다. */
+function checkPending(){
+  if(run.jobPend && !P.adv){
+    run.jobPend = false;
+    run.pendingJob = rollJobs();
+    STATE = 'job'; showJob(); return;
+  }
+  if(run.upQueue > 0){
+    run.upQueue--;
+    run.pendingUp = rollUpgrades();
+    STATE = 'upgrade'; showUpgrade(); return;
+  }
 }
 
 /* 안개도 없고 이길 수 있는 상대도 없으면 알려 준다 — 알아서 끝낼 수 있게 */
@@ -3380,9 +3804,11 @@ function checkDeadEnd(){
 
 /* ══════════════ 25) 화면 전환 ══════════════ */
 var scTitle=$('sc-title'), scClass=$('sc-class'), scBoon=$('sc-boon'), scLoot=$('sc-loot'),
+    scUp=$('sc-up'), scJob=$('sc-job'),
     scDex=$('sc-dex'), scPause=$('sc-pause'), scOver=$('sc-over');
 function hideAll(){
-  [scTitle,scClass,scBoon,scLoot,scDex,scPause,scOver].forEach(function(s){ s.hidden = true; });
+  [scTitle,scClass,scBoon,scLoot,scUp,scJob,scDex,scPause,scOver]
+    .forEach(function(s){ s.hidden = true; });
 }
 function best(){ try{ return parseInt(localStorage.getItem('stephero2.best')||'0',10)||0; }catch(e){ return 0; } }
 function setBest(v){ try{ localStorage.setItem('stephero2.best', String(v)); }catch(e){} }
@@ -3465,6 +3891,45 @@ function showBoon(){
     list.appendChild(b);
   });
 }
+/* 10레벨마다 셋 중 하나. 축복보다 훨씬 크게 잡아 '이제 좀 세졌다' 가 느껴지게. */
+function showUpgrade(){
+  hideAll(); scUp.hidden = false;
+  AUTO.wait = 0.9;
+  $('up-lv').textContent = P.lv;
+  var list = $('up-list'); list.innerHTML = '';
+  run.pendingUp.forEach(function(u){
+    var b = document.createElement('button');
+    b.className = 'pick gL';
+    b.innerHTML = '<i class="pi">'+u.ic+'</i><div class="pt"><b>'+u.nm+'</b><i>'+u.d+'</i></div>';
+    b.addEventListener('click', function(){
+      pickUpgrade(u); sfx('up');
+      hideAll(); STATE = 'play'; syncHud();
+    });
+    list.appendChild(b);
+  });
+}
+/* 전직 — 한 판에 한 번. 갈래마다 '도는 방식' 이 달라진다. */
+function showJob(){
+  hideAll(); scJob.hidden = false;
+  AUTO.wait = 1.15;
+  var ci = null;
+  for(var k=0;k<CLASSES.length;k++) if(CLASSES[k].id === P.cls) ci = CLASSES[k];
+  $('job-sub').innerHTML = (ci ? ci.ic + ' <b>' + ci.nm + '</b> → ' : '') +
+    '두 갈래 중 하나 · 한 판에 한 번뿐입니다';
+  var list = $('job-list'); list.innerHTML = '';
+  run.pendingJob.forEach(function(j){
+    var b = document.createElement('button');
+    b.className = 'pick gR';
+    b.innerHTML = '<i class="pi">'+j.ic+'</i><div class="pt"><b>'+j.nm+
+      '<u class="tag">'+j.tag+'</u></b><i>'+j.d+'</i></div>';
+    b.addEventListener('click', function(){
+      pickJob(j); sfx('up');
+      banner(j.nm + ' 전직!', j.tag);
+      hideAll(); STATE = 'play'; syncHud();
+    });
+    list.appendChild(b);
+  });
+}
 /* 상자에서 나온 장비 — 지금 낀 것과 나란히 놓고 고르게 한다 */
 function showLoot(){
   hideAll(); scLoot.hidden = false;
@@ -3535,6 +4000,10 @@ function showPause(){
     '지하 <b>'+M.f+'층</b> · 점수 <b>'+score()+'</b><br>' +
     '<span style="font-size:11.5px;line-height:1.7">' +
     (ci ? ci.sig + ' — ' + ci.sigd.replace(/<\/?u>/g,'') + '<br>' : '') +
+    (P.adv ? '<b style="color:var(--violet)">전직 ' + JOB_NM[P.adv].nm + '</b> — ' +
+             JOB_NM[P.adv].d.replace(/<\/?u>/g,'') + '<br>' : '') +
+    '필살기 ' + ultDef().nm + ' (' + Math.round(P.ult) + '%)<br>' +
+    (P.ups.length ? '업그레이드 ' + P.ups.join(', ') + '<br>' : '') +
     eq.join('<br>') + '<br>' +
     '축복 ' + (P.boons.length ? P.boons.join(', ') : '아직 없음') + '</span>';
   $('btn-snd').textContent = sndOn ? '🔊 소리 끄기' : '🔇 소리 켜기';
@@ -3554,7 +4023,8 @@ $('btn-snd').addEventListener('click', function(){
   $('btn-snd').textContent = sndOn ? '🔊 소리 끄기' : '🔇 소리 켜기';
 });
 
-var RANKS = [[15000,'S'],[9500,'A'],[5500,'B'],[2600,'C'],[0,'D']];
+/* 성장 축이 셋 늘어 점수 자릿수가 통째로 올라갔다 (봇 600판 : 중앙 23,910 · p85 79,070) */
+var RANKS = [[60000,'S'],[22000,'A'],[9000,'B'],[3500,'C'],[0,'D']];
 function showOver(){
   hideAll(); scOver.hidden = false;
   var s = score(), bs = best();
@@ -3630,6 +4100,7 @@ requestAnimationFrame(loop);
 /* ══════════════ 27) 검증용 봇 (?dev=1) ══════════════
    화면을 그리지 않고 한 판을 끝까지 돌려 본다. 판단은 자동 공략과 같은
    planAct() 를 쓰고, 실행만 애니메이션 없이 즉시 처리한다.            */
+var BOT_GUARD = 6000;          /* 한 판에 허용하는 판단 횟수 (깊이 갈수록 커야 한다) */
 function botRun(seed, clsId, skill){
   HEADLESS = true;
   var TH = 0.80 + 1.00*(1-skill);
@@ -3639,7 +4110,7 @@ function botRun(seed, clsId, skill){
   var exAt = 0.90 - 0.35*skill, doChip = skill >= 0.40, useSp = skill >= 0.40;
   startRun(clsId, seed);
   var taps=0, steps=0, dec=0, guard=0, stuck=false, why='';
-  while(!run.over && guard++ < 6000){
+  while(!run.over && guard++ < BOT_GUARD){
     dec++;
     var mh = maxHp(), hpr = P.hp/mh;
     var pl = planAct({floorHP:floorHP, exAt:exAt, doChip:doChip,
@@ -3699,6 +4170,12 @@ function botRun(seed, clsId, skill){
     }
     if(!adj(o2.m)){ stuck = true; why='not-adj'; break; }
     var mh2 = maxHp();
+    if(useSp && ultReady()){
+      var UU = ULTS[P.cls];
+      if(UU.kind === 'heal'){ if(P.hp < mh2*0.5){ castUlt(null); taps++; } }
+      else if(o2.m.boss || o2.m.elite || simFight(o2.m).taken > mh2*0.22){ castUlt(o2.m); taps++; }
+      if(o2.m.dead || run.over) continue;
+    }
     if(useSp && P.cls!=='ranger' && P.mp >= SPELL.ward && simFight(o2.m).taken > mh2*0.45){ castWard(); taps++; }
     var fg = 0;
     if(P.cls === 'ranger'){
@@ -3725,7 +4202,7 @@ function botRun(seed, clsId, skill){
   var out = {floor:run.floor, cleared:run.cleared, lv:P.lv, kills:P.kills,
              score:score(), taps:taps, steps:steps, dec:dec, stuck:stuck,
              died:P.hp<=0, fog:M.fogLeft, boss:bAlive, left:alive, hp:Math.max(0,P.hp),
-             gear:(P.gear||0), why:(guard>=6000?'guard':why),
+             gear:(P.gear||0), why:(guard>=BOT_GUARD?'guard':why),
              sec: dec*TH + taps*0.26 + steps*(STEP_MS/1000)};
   HEADLESS = false;
   return out;
@@ -3758,6 +4235,11 @@ if(location.search.indexOf('dev=1') >= 0){
     geom:function(){ return {TS:TS, OX:OX, OY:OY, VW:VW, VH:VH, GAP:GAP, LIFT:LIFT, WALLH:WALLH}; },
     setHeadless:function(v){ HEADLESS = !!v; },
     get AUTO(){ return AUTO; }, get SPD(){ return SPD; },
+    ULTS:ULTS, UPGRADES:UPGRADES, JOBS:JOBS, JOB_NM:JOB_NM,
+    castUlt:castUlt, ultReady:ultReady, ultDef:ultDef, addUlt:addUlt,
+    rollUpgrades:rollUpgrades, rollJobs:rollJobs, pickUpgrade:pickUpgrade, pickJob:pickJob,
+    upScore:upScore, showUpgrade:showUpgrade, showJob:showJob, checkPending:checkPending,
+    grantPending:grantPending, BULW:BULW, holyMul:holyMul, gainXp:gainXp,
     setAuto:setAuto, setSpd:setSpd, planAct:planAct, autoStep:autoStep,
     autoTick:autoTick, autoRestart:autoRestart, boonScore:boonScore,
     bestExplore2:bestExplore,
@@ -3785,7 +4267,22 @@ if(location.search.indexOf('dev=1') >= 0){
       if(o.RAGE_MAX!==undefined) RAGE_MAX=o.RAGE_MAX;
       if(o.ELITE_HP!==undefined) ELITE_HP=o.ELITE_HP;
       if(o.AURA_RALLY!==undefined) AURA_RALLY=o.AURA_RALLY;
+      if(o.DEEP_FROM!==undefined) DEEP_FROM=o.DEEP_FROM;
+      if(o.DEEP_HP!==undefined) DEEP_HP=o.DEEP_HP;
+      if(o.DEEP_ATK!==undefined) DEEP_ATK=o.DEEP_ATK;
+      if(o.FORCE_JOB!==undefined) FORCE_JOB=o.FORCE_JOB;
+      if(o.UP_BASE!==undefined) UP_BASE=o.UP_BASE;
+      if(o.UP_GROW!==undefined) UP_GROW=o.UP_GROW;
+      if(o.JOB_LV!==undefined) JOB_LV=o.JOB_LV;
+      if(o.BOT_GUARD!==undefined) BOT_GUARD=o.BOT_GUARD;
+      if(o.LV_POW!==undefined) LV_POW=o.LV_POW;
+      if(o.MINLV!==undefined) MINLV=o.MINLV;
+      if(o.BOSS_HP0!==undefined) BOSS_HP0=o.BOSS_HP0;
+      if(o.BOSS_HPK!==undefined) BOSS_HPK=o.BOSS_HPK;
     },
+    curve:function(f){ return {f:f, hp:dpowH(f), atk:dpowA(f), minLv:minLv(f), boss:bossHp(f)}; },
+    trace:function(on){ TRACE = on ? [] : null; return TRACE; },
+    getTrace:function(){ return TRACE; },
     tap:function(x,y){ onTap(x,y); },
     cellAt:function(x,y){ return cellAt(x,y); },
     flush:function(){ flushWalk(); syncHud(); },
