@@ -395,7 +395,9 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
       <div class="best">최고 깊이 <b id="t-deep" class="hi">지하 1층</b> <span id="t-clear"></span></div>
       <div class="best">최고 점수 <b id="t-best">0</b> · 도감 <b id="t-dex">0/26</b></div>
       <ul class="help">
-        <li><em>회복</em><span>몬스터는 <u>움직이지 않아요</u>. 안개를 한 칸 걷을 때마다 체력이 <u>레벨만큼</u> 회복됩니다</span></li>
+        <li><em>압력</em><span>옆에 붙은 몬스터는 내가 <u>무엇을 하든 매 수마다</u> 나를 쳐요. 얼마를 맞을지 <u>머리 위에 미리</u> 적힙니다</span></li>
+        <li><em>자리</em><span>그래서 <u>어디에 서서 싸우느냐</u>가 중요해요. 벽을 등지면 붙는 수가 줄어듭니다</span></li>
+        <li><em>회복</em><span>안개를 한 칸 걷을 때마다 체력이 <u>레벨의 1.25배</u>만큼 회복됩니다</span></li>
         <li><em>전투</em><span>몬스터를 누르면 <u>결과가 미리</u> 보여요. 한 번 더 누르면 한 대씩 주고받습니다</span></li>
         <li><em>정예</em><span>깃발을 든 <u>정예</u>는 주변 몬스터를 강하게 만들어요 — <u>먼저 잡으면</u> 주변이 약해집니다</span></li>
         <li><em>장비</em><span>상자에서 <u>무기·방어구·장신구</u>가 나와요. 지금 낀 것과 비교해서 고르세요</span></li>
@@ -496,8 +498,24 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
    한칸용사2 (STEP HERO II) — 안개 던전 탐험 RPG
    한 파일로 동작하며 외부 리소스를 쓰지 않는다.
 
-   1편에서 이어진 규칙 : 몬스터는 움직이지 않는다 / 안개를 걷으면 회복한다
-   2편에서 더해진 것   : 직업 6종 · 장비 3칸 · 정예 오라 · 2단 보스 · 지역 5종
+   1편에서 이어진 것 : 안개를 걷으면 회복한다 / 전투에 난수가 하나도 없다
+   2편에서 더한 것   : 직업 6종 · 장비 3칸 · 정예 오라 · 2단 보스 · 지역 5종
+                       그리고 **인접 압력** — 아래.
+
+   ── 인접 압력 ────────────────────────────────────────────────
+   **옆에 붙은 몬스터는 내가 무엇을 하든 매 수마다 나를 친다.**
+
+   원래 몬스터가 용사를 때리는 경로는 doRetal() 하나뿐이었고, 그건 attackOnce() 안에서만
+   불렸다. 즉 몬스터는 '정적' 인 게 아니라 **아무것도 안 하는 상자**였다 — 모든 전투가
+   내가 고른 시점에, 내가 고른 상대와, 1:1 로만 열렸고 걷는 동안은 위험이 0 이었다.
+   그 하나를 바꿨다. 대신 **난수는 여전히 하나도 없고, 다음 수에 얼마를 맞을지
+   몬스터 머리 위에 미리 적는다.** '누르기 전에 결과가 다 보인다' 는 그대로 두고
+   '보이는 것이 고정돼 있다' 만 버린 것이다.
+
+   여기서 파생된 것 셋 — 셋 다 그 결과이지 별도 기능이 아니다 :
+     · 길찾기가 최단이 아니라 **싸게 가는 길**을 찾는다 (몬스터 옆 칸에 통행료)
+     · 미리보기가 1:1 이 아니라 **이 싸움 전체**를 보여 준다 (옆에 붙은 놈들 몫 합산)
+     · 어느 칸에 붙어 싸우느냐가 처음으로 의미를 갖는다 — 벽이 전술 자원이 된다
 
    ── 광고 자리 ─────────────────────────────────────────────────
    광고단위 ID는 아래 CFG 두 줄만 바꾸면 실제 광고로 전환됩니다.
@@ -654,17 +672,25 @@ var MP_BASE  = 10;                 // 최대 MP
 var MON_HP   = 30;                 // 몬스터 HP  = MON_HP × 레벨 × 종족배수
 var MON_ATK  = 10;                 // 몬스터 공격 = MON_ATK × 레벨 × 종족배수
 var XP_NEED  = 4;                  // 다음 레벨까지 = XP_NEED × 현재레벨
-var REGEN_MUL   = 1.0;             // 안개 한 칸당 회복 = 레벨 × 이 값
+var REGEN_MUL   = 1.25;            /* 안개 한 칸당 회복 = 레벨 × 이 값. 인접 압력 전에는 1.0 이었다.
+   **압력을 늘렸으면 안개의 보상도 같이 늘려야 한다** — 안 그러면 '걷어서 회복한다' 는
+   이 시리즈의 중심 고리가 인접 압력에 그냥 잡아먹힌다. 서툰 판이 3층 안에 끝나는 비율이
+   20% → 8% 로 내려간 것의 절반이 이 한 줄이다(나머지 절반은 몬스터 간격 규칙). */
 var TILES_PER_MP = 3;              // 이 칸수마다 MP 1
 var TILES_PER_ARW = 2;             // 이 칸수마다 화살 1 (궁수)
 var WALL_RATE = 0.14;              // 벽 비율
 var SPELL = { fire:5, heal:6, ward:4 };
+var SPREAD_TO = 12;                // 이 층까지는 몬스터를 서로 붙여 놓지 않는다
+var BOSS_CLEAR = 3;                // 보스 둘레 이 칸 안에는 아무도 안 놓는다
 var POT_HEAL = 0.45, POT_MANA = 6; // 물약 효과
 var HEAL_SPELL = 0.34;             // 치유 주문 회복률
 var FIRE_MUL = 0.8;                // 화염구 피해 = 공격력 × 이 값
 var WARD_CHARGE = 2;               // 보호막이 막는 반격 횟수
 var SHARD_ATK = 0.07;              // 힘의 조각 공격력 증가율
-var DEPTH_POW = 1.159;             // 층당 몬스터 능력치 배수 (난이도 경사)
+var DEPTH_POW = 1.148;             /* 층당 몬스터 능력치 배수 (난이도 경사).
+   인접 압력 전에는 1.159 였다. **한 마리가 조금 약해지는 대신 여럿이 동시에 때린다** —
+   총량은 예전과 같게 두고 모양만 바꾼 것이다.
+   (같은 시드·같은 봇으로 개정 전 중앙 22층/층당 50초 → 개정 후 중앙 24층/층당 45초) */
 var DEEP_FROM = 34;                // 이 층부터 경사가 한 번 더 붙는다(30층이 기본 목표)
 var DEEP_HP = 1.075, DEEP_ATK = 1.038;
 /* 200층이 '보통 도달하는 목표' 가 되게 경사를 1.072 로 잡았다(봇 실측 평균 181·중앙 194층).
@@ -673,6 +699,28 @@ var XPB = 0.25;                    // 상위 레벨 몬스터 경험치 보너�
 var STEP_MS = 62;                  // 한 칸 걷는 시간
 var BOSS_AWAKE = 0.5;              // 보스가 각성하는 체력 비율
 var SIM_CAP = 1200;                // simFight 한 판의 교환 상한 (깊은 층에서 타수가 는다)
+
+/* ── 인접 압력 — 이 판의 중심 규칙 ──────────────────────────────────────
+   옆에 붙은 몬스터는 내가 무엇을 하든(걷든·때리든·물약을 마시든) 매 수마다 한 번 나를 친다.
+
+   반격보다 약하게(TURN_MUL) 잡은 이유 : 반격은 '내가 파고들 때 받아치는 것' 이고
+   이건 '옆에서 그냥 때리는 것' 이다. 같은 값으로 두면 세 마리에 둘러싸이는 순간
+   미리보기가 전부 '죽음' 으로 물들어 판단할 게 없어진다 — 둘러싸임이 위험하되
+   **계산해 볼 만한 위험**이어야 한다.
+
+   **철벽·보호막이 이걸 못 막는다** (가시와 같은 취급). 막을 수 있게 하면 머리 위의
+   '다음 수 34' 가 조건부가 되어 예고가 거짓말이 된다. 이 게임에서 숫자의 정직함은
+   방어 다양성보다 위다.                                                        */
+var TURN_MUL  = 0.28;              /* 인접 공격 = 반격 피해 × 이 값.
+   봇 72판으로 잡은 값이다. 0.50 은 판을 부순다(72판 중 18판이 3층 안에 끝났고
+   직업 편차가 1층↔14층까지 벌어졌다). 0.15 는 있으나 마나다.
+   **0.34 를 넘기면 광전사만 살아남는다** — 격노는 체력이 깎일수록 세지므로
+   인접 압력이 곧 자기 강화가 되고, 반대로 마법사는 한 마리에 여러 수를 써야 해서
+   매 수마다 붙는 피해에 가장 먼저 무너진다(0.42 에서 마법사 5층 · 광전사 40층).
+   0.30 에서 옆에 둘이 붙으면 받는 피해가 +60% — 충분히 아프고 계산은 선다. */
+var PASS_TOLL = 2;                 /* 길찾기 : 깨어난 몬스터 하나에 인접한 칸을 밟는 값
+                                      (평지 1). 두 마리 사이를 지나면 1+2+2 = 5.
+                                      그래서 자동 이동이 알아서 몬스터를 피해 돈다. */
 
 /* ── 필살기 · 10레벨 업그레이드 · 전직 ───────────────────────────
    깊이 내려갈수록 몬스터는 곱셈으로 세지는데 용사에게 곱셈 성장이 축복·장비뿐이라
@@ -705,6 +753,12 @@ var SPD_STEPS = [1, 2, 3];         // 배속 단계
 var AUTO_FLOOR = 0.165;            // 이 비율보다 체력이 남아야 '안전한 싸움'
 var AUTO_EX = 0.568;               // 체력이 이보다 낮으면 안개부터 걷는다
 var AUTO_CHIP = 0.34;              // 치고 빠질 때 남길 체력 비율
+/* 안개를 걷을 곳을 고를 때 '멀수록 손해' 의 기울기.
+   인접 압력이 들어오면서 pf.dist 가 칸 수가 아니라 **값**(통행료 포함)이 되어 수가 커졌다 —
+   예전의 0.55 를 그대로 두면 조금만 멀어도 점수가 0 으로 눌려 제자리만 맴돈다. */
+var EX_FAR = 0.42;
+/* 지금 체력의 이 비율 이상을 다음 수에 맞게 생겼고 이길 싸움이 없으면 물러난다 */
+var FLEE_AT = 0.20;
 
 
 /* 궁수 화살 — 멀수록 세진다. 이게 '거리를 벌리는 이유' 가 된다.
@@ -1257,7 +1311,10 @@ function makeMonster(lv, kind, bossDef, f, elite){
     aura:elite||null, au:null, elite:!!elite,
     hp:hp, hpMax:hp, atk:Math.max(1,atk),
     trs:trs, engaged:false, struck:false, guarded:0, dead:false,
-    flash:0, lastHit:-99, ambushed:0
+    flash:0, lastHit:-99, ambushed:0,
+    /* woke : 눈에 들어온 다음 수부터 친다. 어둠에서 갑자기 맞는 일이 없게,
+       **예고를 한 번은 반드시 보고 나서** 맞는다는 약속이다. */
+    woke:0, lunge:0
   };
 }
 function has(m,t){ return m.trs.indexOf(t)>=0; }
@@ -1403,10 +1460,32 @@ function genFloor(f){
   M.mon[bpos] = boss; M.mons.push(boss);
 
   var used = {}; used[bpos] = 1;
-  function take(list){
-    for(var i=0;i<list.length;i++){ if(!used[list[i]]){ used[list[i]]=1; return list[i]; } }
+  /* minD 를 주면 **이미 놓인 몬스터에서 그만큼 떨어진** 칸을 먼저 고른다.
+     인접 압력과 함께 필요해진 규칙이다 — 몬스터를 서로 붙여 놓으면
+     **둘 다에게 인접하지 않은 칸이 아예 없어져** 둘러싸임을 피할 방법이 사라진다.
+     피할 수 있어야 '어디에 서서 싸울까' 가 판단이 된다.
+     (이걸 안 넣었을 때 서툰 봇 36판 중 18판이 3층 안에 끝났다 — 압력 전에는 6판이었다) */
+  function take(list, minD){
+    var i, j, c, x, y, okc;
+    if(minD > 1){
+      for(i=0;i<list.length;i++){
+        c = list[i];
+        if(used[c]) continue;
+        x = c%COLS; y = (c-x)/COLS; okc = true;
+        /* 보스는 더 크게 비운다. **보스전은 이 게임에서 가장 긴 싸움**이라
+           매 수마다 붙는 인접 압력이 거기서 가장 크게 누적된다 —
+           초반에 판이 통째로 끝나는 판을 전부 뜯어보니 18판 다 보스가 살아 있었다.
+           보스가 계단을 잠그고 있으니 그 싸움을 못 이기면 그 판은 거기서 끝난다. */
+        for(j=0;j<M.mons.length && okc;j++)
+          if(cheb(M.mons[j].x, M.mons[j].y, x, y) < (M.mons[j].boss ? BOSS_CLEAR : minD)) okc = false;
+        if(okc){ used[c]=1; return c; }
+      }
+    }
+    for(i=0;i<list.length;i++){ if(!used[list[i]]){ used[list[i]]=1; return list[i]; } }
     return -1;
   }
+  /* 깊이 내려가면 간격이 풀려 무리 지어 나온다 — 그때는 이미 피하는 법을 안다 */
+  var minSep = f <= SPREAD_TO ? 2 : 1;
   /* 지역마다 나오는 종족이 다르다 — 내려간 티가 나야 한다 */
   var kpool = [];
   for(var kk=0; kk<bio.kinds.length; kk++) kpool.push(KMAP[bio.kinds[kk]]);
@@ -1418,7 +1497,7 @@ function genFloor(f){
   for(var ei=0; ei<nElite && ei<order.length; ei++) eliteIdx[order[ei]] = AURAS[ri(AURAS.length)].id;
 
   for(var mi=0; mi<MON_N; mi++){
-    var p = take(cand); if(p<0) break;
+    var p = take(cand, minSep); if(p<0) break;
     var m = makeMonster(Math.max(1, mnl, base + off[ri(off.length)]),
                         pick(kpool), null, f, eliteIdx[mi]||null);
     m.x = p%COLS; m.y = (p-m.x)/COLS;
@@ -1527,6 +1606,110 @@ function spikeDmg(m, curHp){               /* 가시 — 막을 수 없다 */
   return Math.max(1, Math.round(m.atk * monAtkMul(m, curHp) * SPIKE_MUL * P.dr * P.eqm.dr));
 }
 function burstDmg(m){ return Math.max(1, Math.round(m.atk * 0.9 * P.dr * P.eqm.dr)); }
+
+/* ── 인접 압력 — 이 개정이 더한 전부 ────────────────────────────────
+   함수 여섯 개가 규칙의 전부다. 아래 어디에도 rnd() 가 없다 —
+   그래야 머리 위에 적어 둔 숫자가 다음 수에 그대로 들어온다.        */
+
+/* 이 몬스터가 한 수에 넣는 피해. woke 를 보지 않는다 —
+   미리보기는 '아직 안 깨어난 놈' 도 내가 도착할 즈음엔 깨어 있을 것으로 쳐야 정직하다. */
+function turnDmgOf(m){
+  if(m.dead) return 0;
+  var n = has(m,'swift') ? 2 : 1, sum = 0;      /* 날램은 반격과 마찬가지로 두 번 친다 */
+  for(var i=0;i<n;i++){
+    var raw = retalDmg(m, m.hp);
+    if(n > 1) raw = Math.max(1, Math.round(raw*SWIFT_MUL));
+    sum += Math.max(1, Math.round(raw * TURN_MUL));
+  }
+  return sum;
+}
+/* 지금 이 순간 실제로 들어올 값 — 머리 위 뱃지에 적히는 바로 그 숫자 */
+function turnDmg(m){ return (m.dead || !m.woke) ? 0 : turnDmgOf(m); }
+
+/* 그 칸에 서 있으면 매 수마다 더 맞는 양. **합계가 아니라 한 마리씩 목록으로** 돌려준다.
+   skip 은 지금 상대하는 몬스터 — 그놈 몫은 simFight 의 반격에 이미 들어 있다.
+
+   합계로 뭉치면 안 되는 이유(실제로 걸렸다) : 사제의 가호는 '죽을 일격을 막고 절반 회복'
+   이라 **몇 번에 나눠 맞느냐가 결과를 바꾼다.** 체력 30 에 40 짜리 셋이면
+   실제로는 한 대 맞고 가호로 살아난 뒤 두 대를 더 맞아 쓰러지는데,
+   120 을 한 번에 때리면 가호 한 번으로 멀쩡히 살아남는다 — 미리보기가
+   "안전" 이라고 적어 놓고 사람을 죽이는 종류의 어긋남이다.
+   M.mons 순서대로 담아야 monsterTurn 이 치는 순서와 같아진다.            */
+var CROWD_NONE = [];
+function crowdAt(c, skip){
+  if(c < 0 || !M) return CROWD_NONE;
+  var x = c%COLS, y = (c-x)/COLS, list = null;
+  for(var i=0;i<M.mons.length;i++){
+    var m = M.mons[i];
+    if(m.dead || m === skip) continue;
+    if(Math.abs(m.x-x) > 1 || Math.abs(m.y-y) > 1) continue;
+    if(!M.seen[idx(m.x,m.y)]) continue;         /* 아직 못 본 놈은 셀 수 없다 */
+    var d = turnDmgOf(m);
+    if(d > 0) (list || (list = [])).push(d);
+  }
+  return list || CROWD_NONE;
+}
+function crowdSum(a){
+  var s = 0;
+  for(var i=0;i<a.length;i++) s += a[i];
+  return s;
+}
+/* 지금 자리에서 다음 수에 들어올 총합 — 용사 머리 위와 아래 띠에 쓴다 */
+function incoming(){
+  var sum = 0, n = 0;
+  if(!M) return {d:0, n:0};
+  for(var i=0;i<M.mons.length;i++){
+    var m = M.mons[i];
+    if(!adj(m)) continue;
+    var d = turnDmg(m);
+    if(d > 0){ sum += d; n++; }
+  }
+  return {d:sum, n:n};
+}
+/* 눈에 들어온 놈을 깨운다 — 한 수가 **끝난 뒤**에 부른다.
+   이 한 수 늦추기가 '예고를 한 번은 보고 나서 맞는다' 를 보장한다.
+   안 그러면 어두운 칸에 발을 들이는 순간 설명 없이 맞고, 그건 이 게임이 절대
+   하면 안 되는 일이다(전투에 난수를 안 두는 이유와 같다).            */
+function wakeSeen(){
+  for(var i=0;i<M.mons.length;i++){
+    var m = M.mons[i];
+    if(!m.dead && !m.woke && M.seen[idx(m.x,m.y)]) m.woke = 1;
+  }
+}
+/* 한 수가 끝났다 — 옆에 붙은 몬스터가 각자 한 번씩 나를 친다.
+   skip 은 이번 수에 이미 나와 주고받은 놈(반격으로 때린 대상).
+   true 를 돌려주면 용사가 쓰러진 것이니 부르는 쪽은 그 자리에서 멈춰야 한다. */
+function monsterTurn(skip){
+  if(!run || run.over || P.hp <= 0) return true;
+  var tot = 0;
+  for(var i=0;i<M.mons.length;i++){
+    var m = M.mons[i];
+    if(m.dead || m === skip || !m.woke || !adj(m)) continue;
+    var d = turnDmgOf(m);
+    if(d <= 0) continue;
+    m.lunge = 1;                        /* 달려드는 시늉 — 누가 쳤는지 눈으로 보이게 */
+    hurtP(d, null, true);               /* 철벽·보호막을 안 거친다 (가시와 같은 취급) */
+    tot += d;
+    /* 흡혈·흡정은 인접 공격으로도 회복한다 — 반격과 같은 규칙 */
+    var heal = 0;
+    if(has(m,'drain')) heal = Math.round(d*DRAIN_MUL);
+    else if(m.boss && m.ab==='drainb' && m.awake) heal = Math.round(d*BOSS_DRAIN);
+    if(heal > 0 && m.hp < m.hpMax) m.hp = Math.min(m.hpMax, m.hp + heal);
+    if(P.hp <= 0) break;
+  }
+  /* 여러 마리가 쳐도 숫자는 하나만 띄운다 — 같은 자리에 겹쳐 뜨면 아무것도 안 읽힌다 */
+  if(tot > 0){
+    float(P.x, P.y, '-'+fmt(tot), '#ff8fa6'); sfx('hit');
+    /* 규칙은 처음 맞아 볼 때 알려 준다 — 타이틀에 적어 둔 줄은 아무도 안 읽는다 */
+    if(!run.taughtTurn){
+      run.taughtTurn = 1;
+      toast('옆에 붙은 몬스터는 매 수마다 때립니다 — 머리 위 숫자가 다음 수에 맞을 값', 'bad');
+    }
+  }
+  wakeSeen();
+  if(P.hp <= 0){ die(); return true; }
+  return false;
+}
 function xpFor(m){
   var n = m.lv, L = P.lv, g;
   if(n >= L) g = n * (1 + XPB*(n-L)); else g = Math.max(1, 2*n - L);
@@ -1538,11 +1721,17 @@ function xpFor(m){
 /* 끝까지 싸웠을 때의 총합 — 미리보기와 봇이 같은 함수를 쓴다.
    중간에 쓰러지더라도 '잡는 데 드는 총 타수/총 피해' 를 그대로 돌려준다.
    (여기서 멈춰 버리면 미리보기가 '3번 때려 처치' 처럼 거짓말을 한다)  */
-function simFight(m){
+/* crowd — 이 싸움을 하는 동안 **옆에 붙은 다른 놈들이** 매 수마다 더하는 피해.
+   0 을 주면 압력이 없던 시절과 한 비트도 다르지 않은 1:1 계산이다. 이렇게 갈라 둔 이유:
+   미리보기==실제 를 검증하는 테스트가 이 1:1 계산을 그대로 겨냥하고 있어서,
+   여기에 주변 몬스터를 섞어 넣으면 그 검증 자산이 통째로 못 쓰게 된다.
+   화면에는 simFull() 이 crowd 를 채워 넣은 값을 보여 준다.            */
+function simFight(m, crowd){
   var mhp = maxHp();
+  crowd = crowd || CROWD_NONE;
   var mh = m.hp, hp = P.hp, ward = P.ward, struck = m.struck, eng = m.engaged,
       gd = m.guarded, aeg = P.aegis, awoke = m.awake;
-  var hits = 0, taken = 0, dead = false, deadAt = 0, g = 0, aegUsed = 0, bulw = BULW();
+  var hits = 0, taken = 0, dead = false, deadAt = 0, g = 0, aegUsed = 0, bulw = BULW(), cq;
 
   function hurt(d){
     if(d <= 0) return;
@@ -1578,6 +1767,9 @@ function simFight(m){
       if(m.ab === 'strike') retal();       /* 응시 — 각성하며 한 번 먼저 때린다 */
     }
     if(mh > 0 && !first) retal();
+    /* 이 수가 끝났다 — 옆에 붙은 놈들 몫. block() 을 안 거친다(철벽·보호막이 못 막는다).
+       한 마리씩 차례로 — monsterTurn 과 같은 순서여야 가호가 같은 자리에서 터진다. */
+    if(mh > 0) for(cq=0;cq<crowd.length;cq++) hurt(crowd[cq]);
   }
   if(has(m,'burst')) hurt(burstDmg(m));
   if(!dead){
@@ -1585,10 +1777,39 @@ function simFight(m){
     if(vv > 0) hp = Math.min(mhp, hp + Math.round(mhp*vv));
     if(P.killHeal) hp = Math.min(mhp, hp + Math.round(mhp*P.killHeal));
   }
+  /* 잡은 바로 그 수의 몫은 여기서 얹는다 — 실제 순서가 그렇다
+     (attackOnce → killMon 의 폭발·흡혈이 먼저, monsterTurn 이 나중). */
+  if(mh <= 0) for(cq=0;cq<crowd.length;cq++) hurt(crowd[cq]);
   /* 상한에 걸려 못 끝냈으면 그 사실을 그대로 알린다. 예전에는 이걸 숨겨서
      "400번 때려 처치 · 안전" 이라는 새빨간 거짓말이 초록색으로 떴다. */
   return {hits:hits, taken:taken, hpLeft:Math.max(0,hp), dead:dead,
           deadAt:deadAt, aeg:aegUsed, xp:xpFor(m), capped:(mh > 0)};
+}
+/* 길찾기 결과를 한 프레임(=한 수) 동안 재사용한다. 미리보기가 몬스터마다
+   '가서 설 자리' 를 물어보기 때문에, 그대로 두면 한 프레임에 열여섯 번씩 길을 다시 찾는다.
+   SIM_FRAME 은 draw() 와 syncHud() 가 올린다 — 즉 한 프레임 또는 한 수마다 새로 찾는다.
+   봇(HEADLESS)은 둘 다 안 부르므로 캐시를 쓰면 안 된다(영원히 안 늙는다). */
+var PF_C = null, PF_F = -1;
+function pfCached(){
+  if(HEADLESS) return pathfind();
+  if(PF_F === SIM_FRAME && PF_C) return PF_C;
+  PF_C = pathfind(); PF_F = SIM_FRAME;
+  return PF_C;
+}
+/* 이 몬스터와 싸울 때 내가 서 있게 될 칸 — 붙어 있으면 지금 자리, 아니면 걸어가 설 자리 */
+function fightSpot(m, pf){
+  if(adj(m)) return idx(P.x,P.y);
+  return spotNear(m, pf || pfCached());
+}
+/* 화면과 판단이 쓰는 '이 싸움 전체'.
+   simFight 은 1:1 주고받음 그대로 두고, 옆에 붙은 놈들 몫만 crowd 로 얹는다.
+   **어느 칸에 붙느냐가 값을 바꾼다** — 위치가 처음으로 숫자가 되는 지점. */
+function simFull(m, pf, spot){
+  var sp = (spot === undefined) ? fightSpot(m, pf) : spot;
+  var cd = crowdAt(sp, m);
+  var r = simFight(m, cd);
+  r.crowd = crowdSum(cd); r.crowdList = cd; r.spot = sp;
+  return r;
 }
 function threatOf(r){
   if(r.capped) return 'death';        /* 끝이 안 보이는 상대 = 지금은 못 잡는다 */
@@ -1600,10 +1821,13 @@ function threatOf(r){
 }
 
 /* 진짜 체력 깎기. 막기(철벽·보호막)는 호출한 쪽이 이미 처리한 뒤에 부른다. */
-function hurtP(d, label){
+/* quiet — 숫자를 안 띄운다. 인접 압력은 여러 마리가 한꺼번에 치므로
+   각자 띄우면 같은 자리에 겹쳐서 아무것도 안 읽힌다(합계를 monsterTurn 이 대신 띄운다).
+   가호 발동만은 quiet 여도 반드시 보여야 한다 — 판이 뒤집히는 사건이다. */
+function hurtP(d, label, quiet){
   if(d <= 0) return;
   P.hp -= d;
-  float(P.x, P.y, '-'+fmt(d)+(label?' '+label:''), '#ff8fa6');
+  if(!quiet) float(P.x, P.y, '-'+fmt(d)+(label?' '+label:''), '#ff8fa6');
   run.shake = 1;
   if(P.hp <= 0 && P.aegis > 0){
     P.aegis--;
@@ -1665,7 +1889,7 @@ function attackOnce(m){
     hurtP(sp, '가시');
     if(P.hp <= 0){ die(); return; }
   }
-  if(m.hp <= 0){ killMon(m); return; }
+  if(m.hp <= 0){ killMon(m); monsterTurn(m); return; }
   if(m.boss && !m.awake && m.hp <= m.hpMax*BOSS_AWAKE){
     awakenBoss(m);
     if(P.hp <= 0){ die(); return; }
@@ -1674,6 +1898,9 @@ function attackOnce(m){
     doRetal(m);
     if(P.hp <= 0){ die(); return; }
   }
+  /* 상대한 놈은 건너뛴다 — 그놈 몫은 방금 doRetal 로 이미 들어왔다.
+     여기 순서가 simFight 의 루프 끝(hurt(crowd))과 정확히 같아야 미리보기가 안 틀린다. */
+  monsterTurn(m);
 }
 
 /* 보스 각성 — 절반에서 한 번. 전투 밖 효과(소환·서리·재생)는 여기서 즉시 건다. */
@@ -1769,7 +1996,7 @@ function gainXp(n){
 
 /* ══════════════ 13) 주문 · 화살 · 물약 ══════════════ */
 function fireCost(){ return Math.max(1, SPELL.fire - P.fireCut); }
-function castFire(m){
+function castFireRaw(m){
   if(P.cls === 'ranger') return false;
   if(P.mp < fireCost()) return false;
   if(spellImmune(m)){
@@ -1816,7 +2043,7 @@ function fireSplash(m, base){
 }
 
 /* 궁수 — 반격이 없고, 멀수록 세진다. 마법무효에도 통한다. */
-function shootArrow(m){
+function shootArrowRaw(m){
   if(P.arw <= 0) return false;
   P.arw--;
   var dist = cheb(P.x,P.y,m.x,m.y);
@@ -1833,7 +2060,7 @@ function shootArrow(m){
   }
   return true;
 }
-function castHeal(){
+function castHealRaw(){
   if(P.mp < SPELL.heal) return false;
   var h = Math.round(maxHp() * HEAL_SPELL * P.healMul * (0.7 + 0.3*P.spellMul*P.eqm.spell));
   if(P.hp >= maxHp()){ toast('이미 체력이 가득해요'); return false; }
@@ -1842,14 +2069,14 @@ function castHeal(){
   float(P.x, P.y, '+'+fmt(h), '#7ee787'); sfx('heal');
   return true;
 }
-function castWard(){
+function castWardRaw(){
   if(P.mp < SPELL.ward) return false;
   P.mp -= SPELL.ward;
   P.ward = WARD_CHARGE + P.wardPlus;
   float(P.x, P.y, '보호막', '#6aa8ff'); sfx('ward');
   return true;
 }
-function usePot(){
+function usePotRaw(){
   if(P.pot <= 0) return false;
   if(P.hp >= maxHp()){ toast('이미 체력이 가득해요'); return false; }
   P.pot--;
@@ -1858,7 +2085,7 @@ function usePot(){
   float(P.x, P.y, '+'+fmt(h), '#7ee787'); sfx('heal');
   return true;
 }
-function useEth(){
+function useEthRaw(){
   if(P.eth <= 0) return false;
   if(P.cls === 'ranger'){
     if(P.arw >= arwMax()){ toast('화살통이 가득해요'); return false; }
@@ -1893,7 +2120,7 @@ function ultHit(m, mul){
   if(m.hp <= 0){ killMon(m); return; }
   if(m.boss && !m.awake && m.hp <= m.hpMax*BOSS_AWAKE) awakenBoss(m);
 }
-function castUlt(target){
+function castUltRaw(target){
   if(!ultReady()) return false;
   var U = ultDef(), i;
   if(U.kind !== 'heal' && (!target || target.dead)){
@@ -1944,6 +2171,28 @@ function castUlt(target){
   if(P.hp <= 0) die();
   return true;
 }
+
+/* ── 한 수를 쓰는 행동 ──────────────────────────────────────────
+   '무엇을 하든' 옆에 붙은 놈이 한 번 친다. 그래서 주문·화살·물약·필살기가
+   전부 여기를 거친다. **성공했을 때만** 압력이 돈다 — 마나가 모자라 못 쓴 것은
+   한 수를 쓴 게 아니다(안 그러면 버튼을 헛눌러도 맞는다).
+   원래 함수는 이름만 ...Raw 로 바꿔 뒀다. 부르는 쪽(onTap·자동 공략·봇·검증)은
+   예전 이름을 그대로 부르므로 한 곳도 안 고쳤다 —
+   **'자동으로 돈 판과 손으로 둔 판이 같은 게임' 이라는 약속이 여기서 유지된다.** */
+function turnWrap(fn){
+  return function(a){
+    var okv = fn(a);
+    if(okv) monsterTurn(null);
+    return okv;
+  };
+}
+var castFire   = turnWrap(castFireRaw);
+var shootArrow = turnWrap(shootArrowRaw);
+var castHeal   = turnWrap(castHealRaw);
+var castWard   = turnWrap(castWardRaw);
+var usePot     = turnWrap(usePotRaw);
+var useEth     = turnWrap(useEthRaw);
+var castUlt    = turnWrap(castUltRaw);
 
 /* ── 10레벨 업그레이드 · 전직 ──────────────────────────────── */
 function rollUpgrades(){
@@ -2032,6 +2281,9 @@ function stepInto(c){
     if(m.boss && m.ab==='regenb' && m.awake) rate = Math.max(rate, 0.11);
     if(rate > 0) m.hp = Math.min(m.hpMax, m.hp + Math.max(1, Math.round(m.hpMax*rate)));
   }
+  /* 걸음도 한 수다 — 이게 '걷는 동안은 안전' 이 사라지는 지점이다.
+     아이템·계단보다 먼저 놓는다. 여기서 쓰러지면 그 칸의 물약을 줍는 건 말이 안 된다. */
+  if(monsterTurn(null)) return;
   var it = M.item[c];
   if(it){
     M.item[c] = null;
@@ -2456,6 +2708,28 @@ function draw(){
     drawMonUI(um, t);
   }
 
+  /* 둘 이상에게 둘러싸였을 때만 합계를 용사 위에 띄운다.
+     한 마리면 그놈 머리 위 숫자가 곧 합계라 두 번 적을 이유가 없다 —
+     화면에 숫자가 늘어날수록 정작 읽어야 할 숫자를 안 읽게 된다. */
+  if(run && !run.over && STATE === 'play'){
+    var inc = incoming();
+    if(inc.n >= 2){
+      var ix = OX+(P.x+0.5)*TS, iy = topY(P.y) - TS*0.34;
+      var ifs = Math.max(10, TS*0.27);
+      ctx.font = '900 ' + ifs.toFixed(1) + 'px ' + FONT;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var itx = '-' + fmt(inc.d), ipw = ctx.measureText(itx).width + ifs*0.9, iph = ifs*1.34;
+      var ipx = ix - ipw/2, ipy = iy - iph;
+      if(ipy < 1) ipy = topY(P.y) + topH() + TS*0.04;
+      ctx.fillStyle = 'rgba(8,3,10,.9)';
+      rr(ipx-2, ipy-2, ipw+4, iph+4, (iph+4)*0.5); ctx.fill();
+      ctx.fillStyle = 'rgba(255,63,104,' + (0.88 + 0.12*Math.sin(t*6)) + ')';
+      rr(ipx, ipy, ipw, iph, iph*0.5); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(itx, ix, ipy + iph*0.54);
+    }
+  }
+
   /* 필살기 고리 */
   if(run && run.ultT > 0 && run.ultAt){
     var q = 1 - run.ultT, ux = OX+(run.ultAt[0]+0.5)*TS, uy = topY(run.ultAt[1])+topH()*0.45;
@@ -2777,6 +3051,14 @@ function drawMon(m, t){
      넘치는 게 오히려 '덩치가 칸에 안 들어간다' 로 읽힌다. 정예(0.40)와 확실히 구분된다. */
   var r = TS*(m.boss ? 0.52 : (m.elite ? 0.40 : 0.38));
   groundShadow(cx, m.y, m.boss ? 1.32 : 0.92);
+  /* 인접 공격을 한 직후엔 용사 쪽으로 달려드는 시늉을 한다.
+     숫자만 깎이면 '누가 쳤는지' 를 못 읽는다 — 여러 마리가 동시에 칠수록 더 그렇다.
+     그림자는 제자리에 두고 몸만 움직여야 붕 뜨지 않는다(그래서 groundShadow 뒤). */
+  if(m.lunge > 0){
+    var q3 = Math.sin(m.lunge*Math.PI);
+    cx += sgn(P.x - m.x) * TS * 0.20 * q3;
+    cy += sgn(P.y - m.y) * TS * 0.16 * q3;
+  }
   if(m.boss){
     var bc = m.awake ? 'rgba(255,120,40,' : 'rgba(255,63,104,';
     ctx.strokeStyle = bc + (0.35+0.25*Math.sin(t*(m.awake?5.6:3.4))) + ')';
@@ -2868,6 +3150,35 @@ function drawMonUI(m, t){
     ctx.fillStyle = '#14101f';
     ctx.font = '900 ' + Math.max(8, br*1.05).toFixed(0) + 'px ' + FONT;
     ctx.fillText(au2.ch, lx, ly+0.5);
+  }
+
+  /* ── 다음 수에 맞을 값 — 이 판에서 제일 중요한 숫자 ────────────────
+     칸 안에는 자리가 없다(오른쪽 위 레벨 · 왼쪽 아래 정예 · 아래 HP 바).
+     그래서 칸 **위로** 올려 그린다 — 맨 위 패스라 앞줄 벽에 안 가린다.
+     맨 윗줄에서는 위로 나갈 자리가 없어 칸 아래로 내린다.
+     이 숫자가 정직해야 이 게임이 성립한다 → 철벽·보호막이 못 막게 해 둔 이유. */
+  var td = turnDmg(m);
+  if(td > 0 && adj(m)){
+    var fs2 = Math.max(9, TS*0.24);
+    ctx.font = '900 ' + fs2.toFixed(1) + 'px ' + FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var txt2 = fmt(td), pw = ctx.measureText(txt2).width + fs2*0.74, ph = fs2*1.28;
+    /* 깊은 층에서는 네 자리가 흔하다. 칸보다 넓어지면 옆 칸 몬스터의 뱃지와 겹치므로
+       **재서** 줄인다 — 가장 작은 칸(12×12 판의 20.9px)에서 실제로 부딪혔다. */
+    if(pw > TS*1.16){
+      fs2 *= (TS*1.16)/pw;
+      ctx.font = '900 ' + fs2.toFixed(1) + 'px ' + FONT;
+      pw = ctx.measureText(txt2).width + fs2*0.74; ph = fs2*1.28;
+    }
+    /* 0.05 로 띄웠더니 20.9px 칸에서 아래 모서리가 레벨 뱃지를 1.2px 파고들었다 */
+    var px2 = cx - pw/2, py2 = ty - ph - TS*0.14;
+    if(py2 < 1) py2 = ty + topH() - ph*0.25;
+    ctx.fillStyle = 'rgba(8,3,10,.88)';
+    rr(px2-1.5, py2-1.5, pw+3, ph+3, (ph+3)*0.5); ctx.fill();
+    ctx.fillStyle = '#ff3f68';
+    rr(px2, py2, pw, ph, ph*0.5); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(txt2, cx, py2 + ph*0.54);
   }
 }
 
@@ -3236,7 +3547,9 @@ function drawStairs(px, gy, t){
 var SIM_FRAME = 0;
 function simCached(m){
   if(m._sfF === SIM_FRAME) return m._sf;
-  m._sf = simFight(m); m._sfF = SIM_FRAME;
+  /* 레벨 뱃지 색(승산)은 **이 싸움 전체** 기준이어야 한다.
+     1:1 로만 칠하면 세 마리 한가운데 있는 몬스터가 초록으로 뜬다. */
+  m._sf = simFull(m, pfCached()); m._sfF = SIM_FRAME;
   return m._sf;
 }
 
@@ -3271,6 +3584,10 @@ function setEqSlot(el, it){
 }
 function syncHud(){
   if(!P || !M) return;
+  /* 한 수가 끝날 때마다 미리보기·길찾기 캐시를 늙힌다.
+     draw() 도 프레임마다 올리지만, 한 수를 둔 **직후**에는 아직 다음 프레임이 안 왔다 —
+     그 사이에 예전 판으로 계산한 값을 보여 주면 방금 죽인 몬스터가 미리보기에 남는다. */
+  SIM_FRAME++;
   elDepth.textContent = M.f + 'F';
   elLv.textContent = P.lv < 100000 ? P.lv : fmt(P.lv);
   elAtk.textContent = fmt(heroAtk());
@@ -3353,6 +3670,17 @@ function syncPeek(){
                       (M.stairs>=0 ? ' · 계단 열림' : '');
     pkS.innerHTML = '안개 <b>' + M.fogLeft + '</b>칸 남음 · 한 칸당 <b>+' + regenPerTile() + '</b> 회복' +
                     (M.chill ? ' <b style="color:#9fe6ff">(서리 저주)</b>' : '');
+    /* 아무것도 안 골랐어도 '지금 서 있는 자리가 얼마짜리인지' 는 늘 보여야 한다.
+       걷는 것 자체가 한 수라, 이 값을 모르면 다음 한 칸을 못 고른다. */
+    var inc0 = incoming();
+    if(inc0.d > 0){
+      pkS.innerHTML += ' · <b style="color:#ff5f7e">다음 수 −' + fmt(inc0.d) + '</b>' +
+                       '<span style="opacity:.7">(' + inc0.n + '마리)</span>';
+      pkRes.className = 'pk-res res-' + (inc0.d >= P.hp ? 'death'
+                        : inc0.d >= P.hp*0.34 ? 'risk' : 'warn');
+      pkRes.textContent = inc0.d >= P.hp ? '죽음' : '−' + fmt(inc0.d);
+      return;
+    }
     pkRes.className = 'pk-res res-none'; pkRes.textContent = '–';
     return;
   }
@@ -3362,7 +3690,7 @@ function syncPeek(){
   var tn = trNames(m);
   pkT.innerHTML = monName(m) + ' Lv' + m.lv +
                   (tn ? '<em>' + tn + '</em>' : '') + auraTag(m);
-  var r = simFight(m), th = threatOf(r);
+  var r = simFull(m, pfCached()), th = threatOf(r);
   if(r.capped){
     pkS.innerHTML = 'HP <b>' + fmt(m.hp) + '/' + fmt(m.hpMax) +
       '</b> · <b>' + fmt(SIM_CAP) + '번을 때려도 안 죽어요</b> — 지금은 상대가 안 됩니다';
@@ -3379,6 +3707,11 @@ function syncPeek(){
     pkS.innerHTML = 'HP <b>' + fmt(m.hp) + '/' + fmt(m.hpMax) + '</b> · <b>' + fmt(r.hits) + '</b>번 때려 처치 · 받는 피해 <b>' + fmt(r.taken) + '</b>' +
       (r.aeg ? ' <b style="color:#ffe08a">(가호 ' + r.aeg + '회)</b>' : '');
   }
+  /* 옆에 붙은 놈들 몫이 얼마인지 **떼어서** 알려 준다.
+     합쳐진 숫자만 보면 '왜 이렇게 아프지' 로 끝나지만, 떼어 놓으면
+     "저놈을 먼저 치우고 오자" 라는 다음 수가 보인다 — 이게 인접 압력이 노린 판단이다. */
+  if(r.crowd > 0)
+    pkS.innerHTML += ' <b style="color:#ff5f7e">(옆에서 매 수 −' + fmt(r.crowd) + ')</b>';
   /* 궁수 — 지금 거리에서 화살이 얼마나 아픈지 바로 보여 준다 */
   if(P.cls === 'ranger' && P.arw > 0){
     var d = cheb(P.x,P.y,m.x,m.y);
@@ -3395,25 +3728,78 @@ function syncPeek(){
 
 /* ══════════════ 22) 입력 ══════════════ */
 var walk = [], walkT = 0;
+/* 몬스터 옆을 지나가면 맞는다. 그래서 길찾기가 '가장 짧은 길' 이 아니라
+   **'가장 싸게 가는 길'** 을 찾아야 한다 — 깨어난 몬스터에 붙는 칸마다 통행료를 문다.
+   이 한 가지로 탭 한 번의 자동 이동이 알아서 몬스터를 비껴 돌고,
+   벽과 몬스터 사이의 좁은 목이 처음으로 '피해 가야 할 곳' 이 된다.
+   덤으로 spotNear() 는 한 줄도 안 고쳤는데 **덜 둘러싸이는 칸에 붙게** 됐다 —
+   어느 칸에 붙느냐가 곧 통행료라서, 값싼 칸이 곧 안전한 칸이다.
+
+   dist 는 이제 칸 수가 아니라 **값**이다. 칸 수가 필요한 곳은 steps 를 쓴다.   */
 function pathfind(){
-  var from = idx(P.x,P.y);
-  var prev = new Int16Array(COLS*ROWS); prev.fill(-1);
-  var dist = new Int16Array(COLS*ROWS); dist.fill(-1);
-  var q = [from]; prev[from] = from; dist[from] = 0;
-  for(var h=0;h<q.length;h++){
-    var c = q[h], cx = c%COLS, cy = (c-cx)/COLS;
+  var N = COLS*ROWS, from = idx(P.x,P.y);
+  var prev = new Int16Array(N); prev.fill(-1);
+  var dist = new Int32Array(N); dist.fill(-1);
+  var steps = new Int16Array(N); steps.fill(-1);
+  var toll = new Uint8Array(N);
+  var i, k, c, cx, cy, nx, ny, ni;
+  for(i=0;i<M.mons.length;i++){
+    var mm = M.mons[i];
+    if(mm.dead || !mm.woke) continue;          /* 아직 안 깨어난 놈은 안 친다 = 공짜 */
+    for(k=0;k<8;k++){
+      nx = mm.x+DIR8[k][0]; ny = mm.y+DIR8[k][1];
+      if(inb(nx,ny)) toll[idx(nx,ny)] += PASS_TOLL;
+    }
+  }
+  /* 작은 이진 힙. 144칸이면 선형 탐색으로도 되지만 봇이 한 판에 수천 번 부르므로
+     여기서 아끼는 시간이 밸런스 측정 시간에 그대로 나온다.
+     한 칸이 여러 번 들어올 수 있어(값이 나아질 때마다) 넉넉히 잡는다. */
+  var HN = N*8+8, hq = new Int32Array(HN), hv = new Int32Array(HN), hn = 0;
+  function push(v, cell){
+    if(hn+1 >= HN) return;
+    var j = ++hn, t; hq[j] = cell; hv[j] = v;
+    while(j > 1){
+      var pj = j>>1;
+      if(hv[pj] <= hv[j]) break;
+      t=hq[pj]; hq[pj]=hq[j]; hq[j]=t;
+      t=hv[pj]; hv[pj]=hv[j]; hv[j]=t;
+      j = pj;
+    }
+  }
+  function pop(){
+    var top = hq[1], j = 1, t;
+    hq[1] = hq[hn]; hv[1] = hv[hn]; hn--;
+    for(;;){
+      var l = j<<1, r = l+1, s = j;
+      if(l <= hn && hv[l] < hv[s]) s = l;
+      if(r <= hn && hv[r] < hv[s]) s = r;
+      if(s === j) break;
+      t=hq[s]; hq[s]=hq[j]; hq[j]=t;
+      t=hv[s]; hv[s]=hv[j]; hv[j]=t;
+      j = s;
+    }
+    return top;
+  }
+  prev[from] = from; dist[from] = 0; steps[from] = 0;
+  push(0, from);
+  while(hn > 0){
+    c = pop();
+    cx = c%COLS; cy = (c-cx)/COLS;
     /* 계단에서는 더 뻗어 나가지 않는다 = 계단은 '경로의 마지막 칸' 으로만 밟힌다.
        안 그러면 옆 몬스터에게 가다가 계단을 지나쳐 층이 넘어가 버린다. */
     if(c === M.stairs && c !== from) continue;
-    for(var i=0;i<8;i++){
-      var nx = cx+DIR8[i][0], ny = cy+DIR8[i][1];
+    for(i=0;i<8;i++){
+      nx = cx+DIR8[i][0]; ny = cy+DIR8[i][1];
       if(!inb(nx,ny)) continue;
-      var ni = idx(nx,ny);
-      if(dist[ni]>=0 || M.wall[ni] || !M.seen[ni] || M.mon[ni]) continue;
-      prev[ni] = c; dist[ni] = dist[c]+1; q.push(ni);
+      ni = idx(nx,ny);
+      if(M.wall[ni] || !M.seen[ni] || M.mon[ni]) continue;
+      var nd = dist[c] + 1 + toll[ni];
+      if(dist[ni] >= 0 && dist[ni] <= nd) continue;
+      dist[ni] = nd; steps[ni] = steps[c]+1; prev[ni] = c;
+      push(nd, ni);
     }
   }
-  return {prev:prev, dist:dist};
+  return {prev:prev, dist:dist, steps:steps, toll:toll};
 }
 function buildPath(pf, to){
   if(pf.dist[to] < 0) return null;
@@ -3461,8 +3847,12 @@ function flushWalk(){
   walk.length = 0;
 }
 /* 한 번의 교환만 미리 본다 (죽는 수 확인용) */
-function simOne(m){
-  var mhp = maxHp();
+/* crowd 를 안 주면 '지금 서 있는 자리' 기준으로 센다 — 붙어서 치는 상황이 대부분이라
+   그게 맞는 기본값이다. 이 값이 빠지면 "이 공격이면 쓰러집니다" 경고가
+   옆에 붙은 놈들 몫을 빼먹고 조용히 사람을 죽인다.                    */
+function simOne(m, crowd){
+  var mhp = maxHp(), cq;
+  if(crowd === undefined) crowd = crowdAt(idx(P.x,P.y), m);
   var hp = P.hp, ward = P.ward, mh = m.hp, dead = false, aeg = P.aegis;
   var gd = m.guarded, bulw = BULW(), awoke = m.awake;
   function hurt(d){
@@ -3516,6 +3906,7 @@ function simOne(m){
     if(vv>0) hp = Math.min(mhp, hp + Math.round(mhp*vv));
     if(P.killHeal) hp = Math.min(mhp, hp + Math.round(mhp*P.killHeal));
   }
+  for(cq=0;cq<crowd.length;cq++) hurt(crowd[cq]);   /* 이 수가 끝나면 옆에 붙은 놈들이 친다 */
   return {dead:dead, hp:hp, kill:mh<=0};
 }
 
@@ -3640,14 +4031,28 @@ function bestExplore(pf){
       if(!M.seen[idx(nx,ny)]) gain++;
     }
     if(!gain) continue;
-    var v = gain / (1 + pf.dist[c]*0.55);
+    var v = gain / (1 + pf.dist[c]*EX_FAR);
     if(!best || v > best.v) best = {c:c, v:v, gain:gain, d:pf.dist[c]};
   }
   return best;
 }
+/* 맞지 않고 서 있을 수 있는 가장 가까운 칸.
+   인접 압력과 함께 필요해진 함수다 — 예전에는 '가만히 서 있기' 가 공짜였으므로
+   물러날 이유가 아예 없었다. 이제는 **떨어지는 것 자체가 한 수**다. */
+function safeSpot(pf){
+  var best = -1, bd = Infinity, me = idx(P.x,P.y);
+  for(var c=0;c<COLS*ROWS;c++){
+    if(pf.dist[c] < 0 || c === me) continue;
+    if(crowdAt(c, null).length) continue;
+    if(pf.dist[c] < bd){ bd = pf.dist[c]; best = c; }
+  }
+  return best;
+}
+
 /* 안전선(minHp)까지만 쳤을 때 몇 대를 칠 수 있는지 */
-function simLimit(m, minHp){
-  var mhp = maxHp();
+function simLimit(m, minHp, crowd){
+  var mhp = maxHp(), cq;
+  if(crowd === undefined) crowd = crowdAt(idx(P.x,P.y), m);
   var hp = P.hp, ward = P.ward, mh = m.hp, struck = m.struck, eng = m.engaged,
       gd = m.guarded, bulw = BULW(), awoke = m.awake, aeg = P.aegis;
   var hits = 0, g = 0;
@@ -3678,11 +4083,13 @@ function simLimit(m, minHp){
     if(first){ retal(); if(hp <= minHp) break; }
     mh -= physDmg(m, struck, mh, hp); struck = true; hits++;
     hurt(spikeDmg(m, mh));
-    if(mh <= 0){ if(has(m,'burst')) hurt(burstDmg(m)); break; }
+    if(mh <= 0){ if(has(m,'burst')) hurt(burstDmg(m));
+                 for(cq=0;cq<crowd.length;cq++) hurt(crowd[cq]); break; }
     if(m.boss && !awoke && mh <= m.hpMax*BOSS_AWAKE){
       awoke = true; if(m.ab==='strike') retal();
     }
     if(!first) retal();
+    for(cq=0;cq<crowd.length;cq++) hurt(crowd[cq]);  /* 치고 빠지기도 이 몫을 물고 간다 */
   }
   return {hits:hits, hp:hp, kill:mh<=0};
 }
@@ -3699,13 +4106,13 @@ function planAct(o){
     var sp = adj(m) ? idx(P.x,P.y) : spotNear(m, pf);
     if(sp < 0) continue;
     var d = adj(m) ? 0 : pf.dist[sp];
-    var r = simFight(m);
+    var r = simFull(m, pf, sp);   /* 옆에 붙은 놈들 몫까지 넣고 판단한다 */
     if(!r.dead && r.hpLeft/mh >= o.floorHP){
       var c = {m:m, r:r, sp:sp, d:d,
                v: r.xp / (r.taken + mh*0.09 + 1) / (1 + d*0.03) * (m.elite?1.35:1)};
       if(m.boss) bossC = c; else cands.push(c);
     }else{
-      var lm0 = simLimit(m, mh*AUTO_CHIP);
+      var lm0 = simLimit(m, mh*AUTO_CHIP, r.crowdList);
       if(o.doChip && r.taken <= mh*3.2 && lm0.hits > 0)
         chips.push({m:m, sp:sp, d:d, hits:lm0.hits,
                     v: xpFor(m)/(r.taken+1) * (m.boss?1.6:1)});
@@ -3716,7 +4123,7 @@ function planAct(o){
   else cands.sort(function(a,b){ return b.v - a.v; });
   chips.sort(function(a,b){ return b.v - a.v; });
 
-  var act = null;
+  var act = null, fleeC = -1, inc0 = incoming();
   if(ex && hpr < o.exAt) act = {t:'ex'};
   else if(cands.length) act = {t:'fight', o:cands[0]};
   else if(chips.length && hpr > 0.62) act = {t:'chip', o:chips[0]};
@@ -3725,6 +4132,10 @@ function planAct(o){
      레벨과 전리품을 더 챙겨서 결국 보스에 더 강하게 붙는다. */
   else if(ex) act = {t:'ex'};
   else if(bossC) act = {t:'fight', o:bossC};
+  /* 이길 싸움도 걷을 안개도 없는데 옆에서 맞고 있으면 **일단 떨어진다.**
+     이 한 줄이 없으면 봇이 못 이기는 상대 옆에 선 채로 물약만 마시다 죽는다
+     (물약은 회복이 한 번이고 인접 압력은 매 수마다 들어오니 반드시 진다). */
+  else if(inc0.d >= P.hp*FLEE_AT && (fleeC = safeSpot(pf)) >= 0) act = {t:'flee', c:fleeC};
   else if(P.pot > 0 && hpr < 0.92) act = {t:'pot'};
   else if(P.eth > 0 && P.cls==='ranger' && P.arw < arwMax()*0.4) act = {t:'eth'};
   else if(P.mp >= SPELL.heal && hpr < 0.92) act = {t:'hl'};
@@ -3739,7 +4150,7 @@ function planAct(o){
       if(lm.dead) continue;
       var lsp = adj(lm) ? idx(P.x,P.y) : spotNear(lm, pf);
       if(lsp < 0) continue;
-      var lc = simFight(lm).taken / (1 + (lm.boss?1:0));
+      var lc = simFull(lm, pf, lsp).taken / (1 + (lm.boss?1:0));
       if(lc < lastC){ lastC = lc; lastT = {m:lm, sp:lsp, d:adj(lm)?0:pf.dist[lsp]}; }
     }
     if(lastT) act = {t:'fight', o:lastT, doom:true};
@@ -3831,6 +4242,7 @@ function autoStep(){
     if(a.t === 'eth'){ useEth(); AUTO.idle = 0; return; }
     if(a.t === 'hl'){  castHeal(); AUTO.idle = 0; return; }
     if(a.t === 'ex')          AUTO.job = {t:'walk', c:pl.ex.c};
+    else if(a.t === 'flee')   AUTO.job = {t:'walk', c:a.c};
     else if(a.t === 'stairs') AUTO.job = {t:'walk', c:M.stairs};
     else AUTO.job = {t:'fight', m:a.o.m, chip:(a.t === 'chip'), doom:!!a.doom};
     j = AUTO.job;
@@ -3845,7 +4257,7 @@ function autoStep(){
   var m = j.m;
   if(!adj(m)){
     if(P.cls === 'ranger' && P.arw > 0 && cheb(P.x,P.y,m.x,m.y) >= 2 &&
-       simFight(m).taken > mh*0.15){
+       simFull(m).taken > mh*0.15){
       run.sel = m; shootArrow(m); AUTO.idle = 0; return;
     }
     var pf2 = pathfind(), sp = spotNear(m, pf2);
@@ -3858,16 +4270,16 @@ function autoStep(){
   run.sel = m;
   /* 필살기는 아껴 두면 손해다 — 보스·정예거나 붙으면 아플 때 터뜨린다 */
   if(ultReady() && ultDef().kind !== 'heal' &&
-     (m.boss || m.elite || simFight(m).taken > mh*0.22)){
+     (m.boss || m.elite || simFull(m).taken > mh*0.22)){
     castUlt(m); AUTO.idle = 0;
     if(m.dead){ AUTO.job = null; run.sel = null; }
     return;
   }
   if(!j.warded && P.cls !== 'ranger' && P.mp >= SPELL.ward &&
-     simFight(m).taken > mh*0.45){ j.warded = 1; castWard(); AUTO.idle = 0; return; }
+     simFull(m).taken > mh*0.45){ j.warded = 1; castWard(); AUTO.idle = 0; return; }
   if(P.cls === 'ranger'){
-    if(P.arw > 0 && simFight(m).taken > mh*0.30){ shootArrow(m); AUTO.idle = 0; return; }
-  }else if(P.mp >= fireCost() && !spellImmune(m) && simFight(m).taken > mh*0.30){
+    if(P.arw > 0 && simFull(m).taken > mh*0.30){ shootArrow(m); AUTO.idle = 0; return; }
+  }else if(P.mp >= fireCost() && !spellImmune(m) && simFull(m).taken > mh*0.30){
     castFire(m); AUTO.idle = 0; return;
   }
   if(m.dead){ AUTO.job = null; run.sel = null; return; }
@@ -3951,7 +4363,11 @@ function update(dt){
   if(run.shake > 0) run.shake = Math.max(0, run.shake - dt*4.5);
   if(run.levelFx > 0) run.levelFx = Math.max(0, run.levelFx - dt*1.6);
   if(run.confirmT > 0){ run.confirmT -= dt; if(run.confirmT<=0) run.confirm = null; }
-  if(M) for(var k=0;k<M.mons.length;k++) if(M.mons[k].flash>0) M.mons[k].flash = Math.max(0, M.mons[k].flash-dt*4);
+  if(M) for(var k=0;k<M.mons.length;k++){
+    var mk = M.mons[k];
+    if(mk.flash>0) mk.flash = Math.max(0, mk.flash-dt*4);
+    if(mk.lunge>0) mk.lunge = Math.max(0, mk.lunge-sd*3.4);   /* 배속을 태운다 */
+  }
   if(STATE === 'play'){
     run.time += dt;
     run.deadEndT = (run.deadEndT||0) + dt;
@@ -4341,6 +4757,14 @@ function botRun(seed, clsId, skill){
       for(var s=0;s<path.length && !run.over && M===m0;s++) stepInto(path[s]);
       continue;
     }
+    if(act.t === 'flee'){
+      var pff = pathfind(), pfp = buildPath(pff, act.c); taps++;
+      if(!pfp || !pfp.length){ stuck = true; why='flee-path'; break; }
+      steps += pfp.length;
+      var mf = M;
+      for(var sf=0; sf<pfp.length && !run.over && M===mf; sf++) stepInto(pfp[sf]);
+      continue;
+    }
     if(act.t === 'stairs'){
       var pfz = pathfind(), pz = buildPath(pfz, M.stairs); taps++;
       if(!pz){ stuck = true; why='stairs-path'; break; }
@@ -4364,7 +4788,7 @@ function botRun(seed, clsId, skill){
       if(o2.m.dead) continue;
       /* 화살이 떨어졌는데 붙으면 많이 아프다 → 물러나 안개를 걷어 화살을 채운다.
          '쏘고 물러나 채운다' 가 궁수의 진짜 회전이라 봇도 그렇게 돌려야 값이 맞는다. */
-      if(useSp && P.arw === 0 && ex && simFight(o2.m).taken > mh*0.26){
+      if(useSp && P.arw === 0 && ex && simFull(o2.m, pf, o2.sp).taken > mh*0.26){
         var pr = buildPath(pf, ex.c); taps++;
         if(pr && pr.length){
           steps += pr.length;
@@ -4388,17 +4812,17 @@ function botRun(seed, clsId, skill){
     if(useSp && ultReady()){
       var UU = ULTS[P.cls];
       if(UU.kind === 'heal'){ if(P.hp < mh2*0.5){ castUlt(null); taps++; } }
-      else if(o2.m.boss || o2.m.elite || simFight(o2.m).taken > mh2*0.22){ castUlt(o2.m); taps++; }
+      else if(o2.m.boss || o2.m.elite || simFull(o2.m).taken > mh2*0.22){ castUlt(o2.m); taps++; }
       if(o2.m.dead || run.over) continue;
     }
-    if(useSp && P.cls!=='ranger' && P.mp >= SPELL.ward && simFight(o2.m).taken > mh2*0.45){ castWard(); taps++; }
+    if(useSp && P.cls!=='ranger' && P.mp >= SPELL.ward && simFull(o2.m).taken > mh2*0.45){ castWard(); taps++; }
     var fg = 0;
     if(P.cls === 'ranger'){
       while(P.arw > 0 && !o2.m.dead && fg++ < 12 &&
-            (useSp ? simFight(o2.m).taken > mh2*0.30 : true)){ shootArrow(o2.m); taps++; }
+            (useSp ? simFull(o2.m).taken > mh2*0.30 : true)){ shootArrow(o2.m); taps++; }
     }else{
       while(P.mp >= (useSp ? fireCost() : mpMax()) && !spellImmune(o2.m) && !o2.m.dead && fg++ < 12 &&
-            (useSp ? simFight(o2.m).taken > mh2*0.30 : true)){ castFire(o2.m); taps++; }
+            (useSp ? simFull(o2.m).taken > mh2*0.30 : true)){ castFire(o2.m); taps++; }
     }
     if(o2.m.dead) continue;
     if(act.t === 'chip'){
@@ -4461,6 +4885,12 @@ if(location.search.indexOf('dev=1') >= 0){
     fmt:fmt, fmtTime:fmtTime, simCached:simCached, boonSummary:boonSummary,
     get SIM_CAP(){ return SIM_CAP; }, get GOAL_FLOOR(){ return GOAL_FLOOR; },
     setAuto:setAuto, setSpd:setSpd, planAct:planAct, autoStep:autoStep,
+    simFull:simFull, simFight:simFight, simOne:simOne, simLimit:simLimit,
+    turnDmg:turnDmg, turnDmgOf:turnDmgOf, crowdAt:crowdAt, incoming:incoming,
+    monsterTurn:monsterTurn, wakeSeen:wakeSeen, pathfind:pathfind,
+    spotNear:spotNear, buildPath:buildPath, adj:adj, threatOf:threatOf,
+    attackOnce:attackOnce, stepInto:stepInto, castFire:castFire,
+    shootArrow:shootArrow, castWard:castWard, usePot:usePot, castUlt:castUlt,
     autoTick:autoTick, autoRestart:autoRestart, boonScore:boonScore,
     bestExplore2:bestExplore,
     setClock:function(v){ CLOCK = v; },
@@ -4470,7 +4900,11 @@ if(location.search.indexOf('dev=1') >= 0){
       XPB:XPB, REGEN_MUL:REGEN_MUL, WARD_CHARGE:WARD_CHARGE,
       FIRE_MUL:FIRE_MUL, POT_HEAL:POT_HEAL, TILES_PER_MP:TILES_PER_MP,
       ARW_MUL:ARW_MUL, RAGE_MAX:RAGE_MAX, HOLY_MUL:HOLY_MUL,
-      AURA_RALLY:AURA_RALLY, AURA_BASTION:AURA_BASTION, ELITE_HP:ELITE_HP}; },
+      AURA_RALLY:AURA_RALLY, AURA_BASTION:AURA_BASTION, ELITE_HP:ELITE_HP,
+      TURN_MUL:TURN_MUL, PASS_TOLL:PASS_TOLL, EX_FAR:EX_FAR, FLEE_AT:FLEE_AT,
+      SPREAD_TO:SPREAD_TO, BOSS_CLEAR:BOSS_CLEAR,
+      AUTO_FLOOR:AUTO_FLOOR, AUTO_EX:AUTO_EX, AUTO_CHIP:AUTO_CHIP,
+      MON_DENS:MON_DENS, MON_ATK:MON_ATK, DEPTH_POW:DEPTH_POW}; },
     tune:function(o){
       if(o.DEPTH_POW!==undefined) DEPTH_POW=o.DEPTH_POW;
       if(o.SHARD_ATK!==undefined) SHARD_ATK=o.SHARD_ATK;
@@ -4509,6 +4943,17 @@ if(location.search.indexOf('dev=1') >= 0){
       if(o.BOT_GUARD!==undefined) BOT_GUARD=o.BOT_GUARD;
       if(o.LV_POW!==undefined) LV_POW=o.LV_POW;
       if(o.MINLV!==undefined) MINLV=o.MINLV;
+      if(o.TURN_MUL!==undefined) TURN_MUL=o.TURN_MUL;
+      if(o.PASS_TOLL!==undefined) PASS_TOLL=o.PASS_TOLL;
+      if(o.EX_FAR!==undefined) EX_FAR=o.EX_FAR;
+      if(o.FLEE_AT!==undefined) FLEE_AT=o.FLEE_AT;
+      if(o.SPREAD_TO!==undefined) SPREAD_TO=o.SPREAD_TO;
+      if(o.BOSS_CLEAR!==undefined) BOSS_CLEAR=o.BOSS_CLEAR;
+      if(o.RAGE_MAX!==undefined) RAGE_MAX=o.RAGE_MAX;
+      if(o.REGEN_MUL!==undefined) REGEN_MUL=o.REGEN_MUL;
+      if(o.AUTO_FLOOR!==undefined) AUTO_FLOOR=o.AUTO_FLOOR;
+      if(o.AUTO_EX!==undefined) AUTO_EX=o.AUTO_EX;
+      if(o.AUTO_CHIP!==undefined) AUTO_CHIP=o.AUTO_CHIP;
       if(o.BOSS_HP0!==undefined) BOSS_HP0=o.BOSS_HP0;
       if(o.BOSS_HPK!==undefined) BOSS_HPK=o.BOSS_HPK;
     },
